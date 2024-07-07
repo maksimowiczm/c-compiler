@@ -1,6 +1,9 @@
 use std::iter::Peekable;
 
-pub struct Lexer;
+pub struct Lexer<TInput: Iterator<Item = char>> {
+    input: Peekable<TInput>,
+    end: bool,
+}
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum Token {
@@ -14,29 +17,45 @@ pub enum Token {
     Integer(i32),
 }
 
-impl Lexer {
-    pub fn tokenize(&self, mut input: Peekable<impl Iterator<Item = char>>) -> Vec<Token> {
-        let mut tokens = vec![];
+impl<TInput> Lexer<TInput>
+where
+    TInput: Iterator<Item = char>,
+{
+    pub fn new(input: Peekable<TInput>) -> Self {
+        Lexer { input, end: false }
+    }
+}
 
-        while let Some(ch) = input.next() {
-            match ch {
-                '{' => tokens.push(Token::OpenBrace),
-                '}' => tokens.push(Token::CloseBrace),
-                '(' => tokens.push(Token::OpenParenthesis),
-                ')' => tokens.push(Token::CloseParenthesis),
-                ';' => tokens.push(Token::SemiColon),
+impl<TInput> Iterator for Lexer<TInput>
+where
+    TInput: Iterator<Item = char>,
+{
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.end {
+            return None;
+        }
+
+        while let Some(ch) = self.input.next() {
+            return match ch {
+                '{' => Some(Token::OpenBrace),
+                '}' => Some(Token::CloseBrace),
+                '(' => Some(Token::OpenParenthesis),
+                ')' => Some(Token::CloseParenthesis),
+                ';' => Some(Token::SemiColon),
                 '0'..='9' => {
                     let mut number = ch.to_digit(10).unwrap() as i32;
-                    while let Some(ch) = input.peek() {
+                    while let Some(ch) = self.input.peek() {
                         if let Some(digit) = ch.to_digit(10) {
                             number = number * 10 + digit as i32;
                         } else {
                             break;
                         }
 
-                        input.next();
+                        self.input.next();
                     }
-                    tokens.push(Token::Integer(number));
+                    Some(Token::Integer(number))
                 }
                 _ => {
                     if ch.is_whitespace() {
@@ -45,23 +64,24 @@ impl Lexer {
 
                     if ch.is_alphabetic() {
                         let mut word = ch.to_string();
-                        while let Some(ch) = input.peek() {
+                        while let Some(ch) = self.input.peek() {
                             if ch.is_alphabetic() || ch.is_numeric() {
                                 word.push(*ch);
-                                input.next();
+                                self.input.next();
                             } else {
                                 break;
                             }
                         }
-                        tokens.push(Token::Word(word));
+                        Some(Token::Word(word))
+                    } else {
+                        None
                     }
                 }
-            }
+            };
         }
 
-        tokens.push(Token::EndOfFile);
-
-        tokens
+        self.end = true;
+        Some(Token::EndOfFile)
     }
 }
 
@@ -79,8 +99,8 @@ mod tests {
     #[case::integer("1234", vec![Token::Integer(1234), Token::EndOfFile])]
     #[case::word("word", vec![Token::Word("word".to_string()), Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
-        let lexer = Lexer {};
-        let tokens = lexer.tokenize(input.chars().peekable());
+        let lexer = Lexer::new(input.chars().peekable());
+        let tokens = lexer.into_iter().collect::<Vec<_>>();
 
         assert_eq!(tokens, expected);
     }
@@ -95,8 +115,8 @@ mod tests {
         Token::EndOfFile
     ])]
     fn test_combination(#[case] input: &str, #[case] expected: Vec<Token>) {
-        let lexer = Lexer {};
-        let tokens = lexer.tokenize(input.chars().peekable());
+        let lexer = Lexer::new(input.chars().peekable());
+        let tokens = lexer.into_iter().collect::<Vec<_>>();
 
         assert_eq!(tokens, expected);
     }
