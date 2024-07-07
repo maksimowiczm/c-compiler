@@ -5,7 +5,8 @@ pub struct Lexer<TInput: Iterator<Item = char>> {
     end: bool,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(Clone))]
 pub enum Token {
     EndOfFile,
     OpenBrace,
