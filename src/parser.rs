@@ -4,15 +4,6 @@ use std::iter::Peekable;
 
 pub struct Parser;
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-pub enum Node {
-    Program { functions: Vec<Node> },
-    Function { name: String, body: Box<Node> },
-    Return { expression: Box<Node> },
-    Expression { value: Box<Node> },
-    Integer { value: i32 },
-}
-
 #[derive(Error, Display, Debug)]
 pub enum ParserError {
     UnexpectedEndOfInput,
@@ -29,8 +20,31 @@ pub enum ParserError {
     },
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Program {
+    pub(crate) functions: Vec<Function>,
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Function {
+    pub(crate) name: String,
+    pub(crate) body: Statement,
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub enum Statement {
+    Return { expression: Expression },
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub enum Expression {
+    Integer(i128),
+}
+
 impl Parser {
-    pub fn parse(mut tokens: Peekable<impl Iterator<Item = Token>>) -> Result<Node, ParserError> {
+    pub fn parse(
+        mut tokens: Peekable<impl Iterator<Item = Token>>,
+    ) -> Result<Program, ParserError> {
         let mut functions = vec![];
 
         while let Some(token) = tokens.peek() {
@@ -41,7 +55,7 @@ impl Parser {
             functions.push(function(&mut tokens)?);
         }
 
-        let program = Node::Program { functions };
+        let program = Program { functions };
 
         Ok(program)
     }
@@ -64,7 +78,7 @@ fn expect_token(
     }
 }
 
-fn function(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Node, ParserError> {
+fn function(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Function, ParserError> {
     expect_token(tokens, Token::Word("int".to_string()))?;
     let name = match tokens.next() {
         Some(Token::Word(name)) => Ok(name),
@@ -78,38 +92,43 @@ fn function(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Node, 
     expect_token(tokens, Token::OpenParenthesis)?;
     expect_token(tokens, Token::CloseParenthesis)?;
     expect_token(tokens, Token::OpenBrace)?;
-    let body = Box::new(statement(tokens)?);
+    let body = Statement::parse(tokens)?;
     expect_token(tokens, Token::CloseBrace)?;
 
-    Ok(Node::Function { name, body })
+    Ok(Function { name, body })
 }
 
-fn expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Node, ParserError> {
-    let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
-    match token {
-        Token::Integer(value) => Ok(Node::Integer { value }),
-        _ => Err(ParserError::UnexpectedToken {
-            unexpected: token,
-            expected: vec![Token::Integer(0)],
-            near_tokens: tokens.take(6).collect(),
-        }),
+impl Statement {
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        match token {
+            Token::Word(word) if word == "return" => {
+                let expression = Expression::parse(tokens)?;
+                expect_token(tokens, Token::SemiColon)?;
+                Ok(Statement::Return { expression })
+            }
+            _ => Err(ParserError::UnexpectedToken {
+                unexpected: token,
+                expected: vec![Token::Word("return".to_string())],
+                near_tokens: tokens.take(6).collect(),
+            }),
+        }
     }
 }
 
-fn statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Node, ParserError> {
-    return_statement(tokens)
-}
-
-fn return_statement(
-    tokens: &mut Peekable<impl Iterator<Item = Token>>,
-) -> Result<Node, ParserError> {
-    expect_token(tokens, Token::Word("return".to_string()))?;
-    let expression = expression(tokens)?;
-    expect_token(tokens, Token::SemiColon)?;
-
-    Ok(Node::Return {
-        expression: Box::new(expression),
-    })
+impl Expression {
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+        match token {
+            Token::Integer(value) => Ok(Expression::Integer(value as i128)),
+            _ => Err(ParserError::UnexpectedToken {
+                unexpected: token,
+                expected: vec![Token::Integer(0)],
+                near_tokens: tokens.take(6).collect(),
+            }),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -120,20 +139,20 @@ mod tests {
     #[rstest]
     #[case::return_integer(
         &[Token::Word("return".to_string()), Token::Integer(1234), Token::SemiColon],
-        Node::Return { expression: Box::new(Node::Integer { value: 1234 }) }
+        Statement::Return { expression: Expression::Integer(1234) }
     )]
-    fn test_statement(#[case] tokens: &[Token], #[case] expected: Node) {
+    fn test_statement(#[case] tokens: &[Token], #[case] expected: Statement) {
         let mut tokens = tokens.iter().cloned().peekable();
-        let statement = statement(&mut tokens).unwrap();
+        let statement = Statement::parse(&mut tokens).unwrap();
 
         assert_eq!(statement, expected);
     }
 
     #[rstest]
-    #[case(&[Token::Integer(1234)], Node::Integer { value: 1234 })]
-    fn test_expression(#[case] tokens: &[Token], #[case] expected: Node) {
+    #[case(&[Token::Integer(1234)], Expression::Integer(1234))]
+    fn test_expression(#[case] tokens: &[Token], #[case] expected: Expression) {
         let mut tokens = tokens.iter().cloned().peekable();
-        let expression = expression(&mut tokens).unwrap();
+        let expression = Expression::parse(&mut tokens).unwrap();
 
         assert_eq!(expression, expected);
     }
@@ -151,14 +170,14 @@ mod tests {
             Token::SemiColon,
             Token::CloseBrace
         ],
-        Node::Function {
+        Function {
             name: "main".to_string(),
-            body: Box::new(Node::Return {
-                expression: Box::new(Node::Integer { value: 1234 })
-            })
+            body: Statement::Return {
+                expression: Expression::Integer(1234)
+            }
         }
     )]
-    fn test_function(#[case] tokens: &[Token], #[case] expected: Node) {
+    fn test_function(#[case] tokens: &[Token], #[case] expected: Function) {
         let mut tokens = tokens.iter().cloned().peekable();
         let function = function(&mut tokens).unwrap();
 
