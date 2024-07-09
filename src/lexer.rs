@@ -16,6 +16,9 @@ pub enum Token {
     SemiColon,
     Word(String),
     Integer(i32),
+    Negation,
+    LogicalNot,
+    BitwiseNot,
 }
 
 impl<TInput> Lexer<TInput>
@@ -45,6 +48,9 @@ where
                 '(' => Some(Token::OpenParenthesis),
                 ')' => Some(Token::CloseParenthesis),
                 ';' => Some(Token::SemiColon),
+                '!' => Some(Token::LogicalNot),
+                '~' => Some(Token::BitwiseNot),
+                '-' => Some(Token::Negation),
                 '0'..='9' => {
                     let mut number = ch.to_digit(10).unwrap() as i32;
                     while let Some(ch) = self.input.peek() {
@@ -99,6 +105,9 @@ mod tests {
     #[case::semi_colon(";", vec![Token::SemiColon, Token::EndOfFile])]
     #[case::integer("1234", vec![Token::Integer(1234), Token::EndOfFile])]
     #[case::word("word", vec![Token::Word("word".to_string()), Token::EndOfFile])]
+    #[case::negation("-", vec![Token::Negation, Token::EndOfFile])]
+    #[case::logical_not("!", vec![Token::LogicalNot, Token::EndOfFile])]
+    #[case::bitwise_not("~", vec![Token::BitwiseNot, Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
@@ -116,6 +125,39 @@ mod tests {
         Token::EndOfFile
     ])]
     fn test_combination(#[case] input: &str, #[case] expected: Vec<Token>) {
+        let lexer = Lexer::new(input.chars().peekable());
+        let tokens = lexer.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(tokens, expected);
+    }
+
+    #[rstest]
+    #[case::logical_not("!!3", vec![
+        Token::LogicalNot,
+        Token::LogicalNot,
+        Token::Integer(3),
+        Token::EndOfFile
+    ])]
+    #[case::negation("--3", vec![
+        Token::Negation,
+        Token::Negation,
+        Token::Integer(3),
+        Token::EndOfFile
+    ])]
+    #[case::bitwise_not("~~3", vec![
+        Token::BitwiseNot,
+        Token::BitwiseNot,
+        Token::Integer(3),
+        Token::EndOfFile
+    ])]
+    #[case::negation_bitwise_not_logical_not("-!~3", vec![
+        Token::Negation,
+        Token::LogicalNot,
+        Token::BitwiseNot,
+        Token::Integer(3),
+        Token::EndOfFile
+    ])]
+    fn test_unary_operators(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
 

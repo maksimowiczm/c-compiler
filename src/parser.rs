@@ -39,6 +39,17 @@ pub enum Statement {
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum Expression {
     Integer(i128),
+    UnaryOperation {
+        operator: UnaryOperator,
+        operand: Box<Expression>,
+    },
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub enum UnaryOperator {
+    Negation,
+    BitwiseNot,
+    LogicalNot,
 }
 
 impl Parser {
@@ -122,6 +133,27 @@ impl Expression {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
         match token {
             Token::Integer(value) => Ok(Expression::Integer(value as i128)),
+            Token::Negation => {
+                let operand = Box::new(Expression::parse(tokens)?);
+                Ok(Expression::UnaryOperation {
+                    operator: UnaryOperator::Negation,
+                    operand,
+                })
+            }
+            Token::BitwiseNot => {
+                let operand = Box::new(Expression::parse(tokens)?);
+                Ok(Expression::UnaryOperation {
+                    operator: UnaryOperator::BitwiseNot,
+                    operand,
+                })
+            }
+            Token::LogicalNot => {
+                let operand = Box::new(Expression::parse(tokens)?);
+                Ok(Expression::UnaryOperation {
+                    operator: UnaryOperator::LogicalNot,
+                    operand,
+                })
+            }
             _ => Err(ParserError::UnexpectedToken {
                 unexpected: token,
                 expected: vec![Token::Integer(0)],
@@ -150,6 +182,28 @@ mod tests {
 
     #[rstest]
     #[case(&[Token::Integer(1234)], Expression::Integer(1234))]
+    #[case(&[Token::Negation, Token::Integer(1234)], Expression::UnaryOperation {
+        operator: UnaryOperator::Negation,
+        operand: Box::new(Expression::Integer(1234))
+    })]
+    #[case(&[Token::BitwiseNot, Token::Integer(1234)], Expression::UnaryOperation {
+        operator: UnaryOperator::BitwiseNot,
+        operand: Box::new(Expression::Integer(1234))
+    })]
+    #[case(&[Token::LogicalNot, Token::Integer(1234)], Expression::UnaryOperation {
+        operator: UnaryOperator::LogicalNot,
+        operand: Box::new(Expression::Integer(1234))
+    })]
+    #[case(&[Token::Negation, Token::BitwiseNot, Token::LogicalNot, Token::Integer(1234)], Expression::UnaryOperation {
+        operator: UnaryOperator::Negation,
+        operand: Box::new(Expression::UnaryOperation {
+            operator: UnaryOperator::BitwiseNot,
+            operand: Box::new(Expression::UnaryOperation {
+                operator: UnaryOperator::LogicalNot,
+                operand: Box::new(Expression::Integer(1234))
+            })
+        })
+    })]
     fn test_expression(#[case] tokens: &[Token], #[case] expected: Expression) {
         let mut tokens = tokens.iter().cloned().peekable();
         let expression = Expression::parse(&mut tokens).unwrap();
