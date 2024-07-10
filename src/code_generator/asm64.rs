@@ -52,6 +52,8 @@ enum Instruction {
     Pop(String),
     #[display("add {}, {}", _0, _1)]
     Add(String, String),
+    #[display("mul {}", _0)]
+    Mul(String),
 }
 
 enum FunctionContext {
@@ -141,16 +143,18 @@ fn generate_binary_operator(
     instructions.push(Instruction::Push(Register64::Rax.to_string()));
     let right = generate_expression(right);
     instructions.extend(right);
+    instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
 
     match operator {
         BinaryOperator::Addition => {
-            instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
             instructions.push(Instruction::Add(
                 Register64::Rdi.to_string(),
                 Register64::Rax.to_string(),
             ));
         }
-        BinaryOperator::Multiplication => todo!(),
+        BinaryOperator::Multiplication => {
+            instructions.push(Instruction::Mul(Register64::Rdi.to_string()))
+        }
         BinaryOperator::Division => todo!(),
     }
 
