@@ -18,8 +18,11 @@ where
         for function in node.functions {
             let instructions = generate_function(function);
             for instruction in instructions {
-                writeln!(buffer, "{}", instruction)
-                    .map_err(Asm64CodeGenerationError::BufferError)?;
+                let line = match instruction {
+                    Instruction::Label(_) | Instruction::Globl(_) => format!("{}", instruction),
+                    _ => format!("\t{}", instruction),
+                };
+                writeln!(buffer, "{}", line).map_err(Asm64CodeGenerationError::BufferError)?;
             }
         }
 
@@ -34,6 +37,7 @@ where
 enum Instruction {
     #[display("{}:", _0)]
     Label(String),
+    /// mov src, dest
     #[display("mov {}, {}", _0, _1)]
     Mov(String, String),
     #[display("syscall")]
@@ -54,6 +58,8 @@ enum Instruction {
     Add(String, String),
     #[display("mul {}", _0)]
     Mul(String),
+    #[display("div {}", _0)]
+    Div(String),
 }
 
 enum FunctionContext {
@@ -66,6 +72,8 @@ enum Register64 {
     Rax,
     #[display("%rdi")]
     Rdi,
+    #[display("%rdx")]
+    Rdx,
 }
 
 #[derive(Display, Clone, Copy)]
@@ -143,19 +151,31 @@ fn generate_binary_operator(
     instructions.push(Instruction::Push(Register64::Rax.to_string()));
     let right = generate_expression(right);
     instructions.extend(right);
-    instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
 
     match operator {
         BinaryOperator::Addition => {
+            instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
             instructions.push(Instruction::Add(
                 Register64::Rdi.to_string(),
                 Register64::Rax.to_string(),
             ));
         }
         BinaryOperator::Multiplication => {
+            instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
             instructions.push(Instruction::Mul(Register64::Rdi.to_string()))
         }
-        BinaryOperator::Division => todo!(),
+        BinaryOperator::Division => {
+            instructions.push(Instruction::Mov(
+                Register64::Rax.to_string(),
+                Register64::Rdi.to_string(),
+            ));
+            instructions.push(Instruction::Pop(Register64::Rax.to_string()));
+            instructions.push(Instruction::Mov(
+                "$0".to_string(),
+                Register64::Rdx.to_string(),
+            ));
+            instructions.push(Instruction::Div(Register64::Rdi.to_string()));
+        }
     }
 
     instructions

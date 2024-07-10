@@ -2,12 +2,8 @@
 
 file=$1
 
-set -e
-
-echo "Running gcc"
-gcc -nostdlib -o program $file
-
-set +e
+echo "Running gcc on $file"
+gcc -nostdlib -g -o program $file || { echo "Compilation failed"; exit 1; }
 
 echo "Executing ./program"
 ./program
