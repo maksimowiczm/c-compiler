@@ -77,6 +77,8 @@ enum Instruction {
     Div(String),
     #[display("je {}", _0)]
     Je(String),
+    #[display("jne {}", _0)]
+    Jne(String),
     #[display("jmp {}", _0)]
     Jmp(String),
 }
@@ -228,41 +230,46 @@ fn generate_logical_operator(
     // Generate left expression instructions and store it in RAX
     instructions.extend(generate_expression(left));
 
+    let label = format!(".L{}", unsafe {
+        LABEL_COUNTER += 1;
+        LABEL_COUNTER
+    });
+    instructions.push(Instruction::Cmp(
+        "$0".to_string(),
+        Register64::Rax.to_string(),
+    ));
+
     match operator {
-        LogicalOperator::And => todo!(),
+        LogicalOperator::And => {
+            instructions.push(Instruction::Jne(label.clone()));
+        }
         LogicalOperator::Or => {
-            instructions.push(Instruction::Cmp(
-                "$0".to_string(),
-                Register64::Rax.to_string(),
-            ));
-            let label = format!(".L{}", unsafe {
-                LABEL_COUNTER += 1;
-                LABEL_COUNTER
-            });
-            let exit_label = format!(".E{}", unsafe {
-                LABEL_COUNTER += 1;
-                LABEL_COUNTER
-            });
             instructions.push(Instruction::Je(label.clone()));
             instructions.push(Instruction::Mov(
                 "$1".to_string(),
                 Register64::Rax.to_string(),
             ));
-            instructions.push(Instruction::Jmp(exit_label.clone()));
-            instructions.push(Instruction::Label(label));
-            instructions.extend(generate_expression(right));
-            instructions.push(Instruction::Cmp(
-                "$0".to_string(),
-                Register64::Rax.to_string(),
-            ));
-            instructions.push(Instruction::Mov(
-                "$0".to_string(),
-                Register64::Rax.to_string(),
-            ));
-            instructions.push(Instruction::Setne(Register8::Al.to_string()));
-            instructions.push(Instruction::Label(exit_label));
         }
     }
+
+    let exit_label = format!(".E{}", unsafe {
+        LABEL_COUNTER += 1;
+        LABEL_COUNTER
+    });
+    instructions.push(Instruction::Jmp(exit_label.clone()));
+    instructions.push(Instruction::Label(label));
+    instructions.extend(generate_expression(right));
+    instructions.push(Instruction::Cmp(
+        "$0".to_string(),
+        Register64::Rax.to_string(),
+    ));
+    instructions.push(Instruction::Mov(
+        "$0".to_string(),
+        Register64::Rax.to_string(),
+    ));
+    instructions.push(Instruction::Setne(Register8::Al.to_string()));
+
+    instructions.push(Instruction::Label(exit_label));
 
     instructions
 }
