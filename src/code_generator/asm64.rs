@@ -1,5 +1,8 @@
 use crate::code_generator::CodeGenerator;
-use crate::parser::{Expression, Function, MathOperator, Program, Statement, UnaryOperator};
+use crate::parser::{
+    Expression, Function, LogicalOperator, MathOperator, Program, RelationalOperator, Statement,
+    UnaryOperator,
+};
 use derive_more::{Display, Error};
 use std::io::Write;
 
@@ -52,6 +55,16 @@ enum Instruction {
     Cmp(String, String),
     #[display("sete {}", _0)]
     Sete(String),
+    #[display("setne {}", _0)]
+    Setne(String),
+    #[display("setl {}", _0)]
+    Setl(String),
+    #[display("setle {}", _0)]
+    Setle(String),
+    #[display("setg {}", _0)]
+    Setg(String),
+    #[display("setge {}", _0)]
+    Setge(String),
     #[display("push {}", _0)]
     Push(String),
     #[display("pop {}", _0)]
@@ -139,9 +152,85 @@ fn generate_expression(expression: Expression) -> Vec<Instruction> {
             left,
             right,
         } => generate_math_operator(operator, *left, *right),
-        Expression::LogicalOperation { .. } => todo!(),
-        Expression::RelationalOperation { .. } => todo!(),
+        Expression::LogicalOperation {
+            operator,
+            left,
+            right,
+        } => generate_logical_operator(operator, *left, *right),
+        Expression::RelationalOperation {
+            operator,
+            left,
+            right,
+        } => generate_relational_operator(operator, *left, *right),
     }
+}
+
+fn generate_relational_operator(
+    operator: RelationalOperator,
+    left: Expression,
+    right: Expression,
+) -> Vec<Instruction> {
+    let mut instructions = vec![];
+    // Generate left expression instructions and push the result to the stack
+    instructions.extend(generate_expression(left));
+    instructions.push(Instruction::Push(Register64::Rax.to_string()));
+    // Generate right expression instructions and store the result in RAX
+    instructions.extend(generate_expression(right));
+    instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
+    // Compare the two values
+    instructions.push(Instruction::Cmp(
+        Register64::Rax.to_string(),
+        Register64::Rdi.to_string(),
+    ));
+    // Zero out RAX
+    instructions.push(Instruction::Mov(
+        "$0".to_string(),
+        Register64::Rax.to_string(),
+    ));
+
+    // Set AL as result of the comparison
+    match operator {
+        RelationalOperator::Equal => {
+            instructions.push(Instruction::Sete(Register8::Al.to_string()));
+        }
+        RelationalOperator::NotEqual => {
+            instructions.push(Instruction::Setne(Register8::Al.to_string()));
+        }
+        RelationalOperator::LessThan => {
+            instructions.push(Instruction::Setl(Register8::Al.to_string()));
+        }
+        RelationalOperator::LessThanOrEqual => {
+            instructions.push(Instruction::Setle(Register8::Al.to_string()));
+        }
+        RelationalOperator::GreaterThan => {
+            instructions.push(Instruction::Setg(Register8::Al.to_string()));
+        }
+        RelationalOperator::GreaterThanOrEqual => {
+            instructions.push(Instruction::Setge(Register8::Al.to_string()));
+        }
+    }
+
+    instructions
+}
+
+fn generate_logical_operator(
+    operator: LogicalOperator,
+    left: Expression,
+    right: Expression,
+) -> Vec<Instruction> {
+    let mut instructions = vec![];
+    // Generate left expression instructions and push the result to the stack
+    instructions.extend(generate_expression(left));
+    instructions.push(Instruction::Push(Register64::Rax.to_string()));
+    // Generate right expression instructions and store the result in RAX
+    instructions.extend(generate_expression(right));
+
+    match operator {
+        LogicalOperator::And => todo!(),
+        LogicalOperator::Or => todo!(),
+    }
+
+    instructions
 }
 
 fn generate_math_operator(
