@@ -1,5 +1,5 @@
 use crate::code_generator::CodeGenerator;
-use crate::parser::{Expression, Function, Program, Statement, UnaryOperator};
+use crate::parser::{BinaryOperator, Expression, Function, Program, Statement, UnaryOperator};
 use derive_more::{Display, Error};
 use std::io::Write;
 
@@ -46,6 +46,12 @@ enum Instruction {
     Cmp(String, String),
     #[display("sete {}", _0)]
     Sete(String),
+    #[display("push {}", _0)]
+    Push(String),
+    #[display("pop {}", _0)]
+    Pop(String),
+    #[display("add {}, {}", _0, _1)]
+    Add(String, String),
 }
 
 enum FunctionContext {
@@ -116,7 +122,39 @@ fn generate_expression(expression: Expression) -> Vec<Instruction> {
             let operator = generate_unary_operator(operator);
             operand.iter().chain(&operator).cloned().collect()
         }
+        Expression::BinaryOperation {
+            operator,
+            left,
+            right,
+        } => generate_binary_operator(operator, *left, *right),
     }
+}
+
+fn generate_binary_operator(
+    operator: BinaryOperator,
+    left: Expression,
+    right: Expression,
+) -> Vec<Instruction> {
+    let mut instructions = vec![];
+    let left = generate_expression(left);
+    instructions.extend(left);
+    instructions.push(Instruction::Push(Register64::Rax.to_string()));
+    let right = generate_expression(right);
+    instructions.extend(right);
+
+    match operator {
+        BinaryOperator::Addition => {
+            instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
+            instructions.push(Instruction::Add(
+                Register64::Rdi.to_string(),
+                Register64::Rax.to_string(),
+            ));
+        }
+        BinaryOperator::Multiplication => todo!(),
+        BinaryOperator::Division => todo!(),
+    }
+
+    instructions
 }
 
 /// Generates unary operator instructions and places the result in RAX

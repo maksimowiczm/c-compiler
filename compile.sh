@@ -1,9 +1,15 @@
 #!/bin/bash
 
-set -e
-
 file=$1
 
+set -e
+
+echo "Running gcc"
 gcc -nostdlib -o program $file
+
+set +e
+
+echo "Executing ./program"
 ./program
-echo $?
+
+echo "Exit code: $?"
