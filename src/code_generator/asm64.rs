@@ -1,5 +1,5 @@
 use crate::code_generator::CodeGenerator;
-use crate::parser::{BinaryOperator, Expression, Function, Program, Statement, UnaryOperator};
+use crate::parser::{Expression, Function, MathOperator, Program, Statement, UnaryOperator};
 use derive_more::{Display, Error};
 use std::io::Write;
 
@@ -132,16 +132,18 @@ fn generate_expression(expression: Expression) -> Vec<Instruction> {
             let operator = generate_unary_operator(operator);
             operand.iter().chain(&operator).cloned().collect()
         }
-        Expression::BinaryOperation {
+        Expression::MathOperation {
             operator,
             left,
             right,
-        } => generate_binary_operator(operator, *left, *right),
+        } => generate_math_operator(operator, *left, *right),
+        Expression::LogicalOperation { .. } => todo!(),
+        Expression::RelationalOperation { .. } => todo!(),
     }
 }
 
-fn generate_binary_operator(
-    operator: BinaryOperator,
+fn generate_math_operator(
+    operator: MathOperator,
     left: Expression,
     right: Expression,
 ) -> Vec<Instruction> {
@@ -153,18 +155,18 @@ fn generate_binary_operator(
     instructions.extend(right);
 
     match operator {
-        BinaryOperator::Addition => {
+        MathOperator::Addition => {
             instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
             instructions.push(Instruction::Add(
                 Register64::Rdi.to_string(),
                 Register64::Rax.to_string(),
             ));
         }
-        BinaryOperator::Multiplication => {
+        MathOperator::Multiplication => {
             instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
             instructions.push(Instruction::Mul(Register64::Rdi.to_string()))
         }
-        BinaryOperator::Division => {
+        MathOperator::Division => {
             instructions.push(Instruction::Mov(
                 Register64::Rax.to_string(),
                 Register64::Rdi.to_string(),

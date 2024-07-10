@@ -43,8 +43,18 @@ pub enum Expression {
         operator: UnaryOperator,
         operand: Box<Expression>,
     },
-    BinaryOperation {
-        operator: BinaryOperator,
+    MathOperation {
+        operator: MathOperator,
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    LogicalOperation {
+        operator: LogicalOperator,
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+    RelationalOperation {
+        operator: RelationalOperator,
         left: Box<Expression>,
         right: Box<Expression>,
     },
@@ -58,10 +68,26 @@ pub enum UnaryOperator {
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub enum BinaryOperator {
+pub enum MathOperator {
     Addition,
     Multiplication,
     Division,
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub enum LogicalOperator {
+    And,
+    Or,
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub enum RelationalOperator {
+    Equal,
+    NotEqual,
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
 }
 
 impl Parser {
@@ -142,24 +168,150 @@ impl Statement {
 
 impl Expression {
     fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        Expression::logical_or(tokens)
+    }
+
+    fn logical_or(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        let mut node = Expression::logical_and(tokens)?;
+
+        while let Some(token) = tokens.peek() {
+            match token {
+                Token::LogicalOr => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::LogicalOperation {
+                        operator: LogicalOperator::Or,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(node)
+    }
+
+    fn logical_and(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Result<Self, ParserError> {
+        let mut node = Expression::equality(tokens)?;
+
+        while let Some(token) = tokens.peek() {
+            match token {
+                Token::LogicalAnd => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::LogicalOperation {
+                        operator: LogicalOperator::And,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(node)
+    }
+
+    fn equality(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        let mut node = Expression::relational(tokens)?;
+
+        while let Some(token) = tokens.peek() {
+            match token {
+                Token::Equal => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::RelationalOperation {
+                        operator: RelationalOperator::Equal,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                Token::NotEqual => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::RelationalOperation {
+                        operator: RelationalOperator::NotEqual,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(node)
+    }
+
+    fn relational(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        let mut node = Expression::additive(tokens)?;
+
+        while let Some(token) = tokens.peek() {
+            match token {
+                Token::LessThan => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::RelationalOperation {
+                        operator: RelationalOperator::LessThan,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                Token::LessThanOrEqual => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::RelationalOperation {
+                        operator: RelationalOperator::LessThanOrEqual,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                Token::GreaterThan => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::RelationalOperation {
+                        operator: RelationalOperator::GreaterThan,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                Token::GreaterThanOrEqual => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::RelationalOperation {
+                        operator: RelationalOperator::GreaterThanOrEqual,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(node)
+    }
+
+    fn additive(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
         let mut node = Expression::term(tokens)?;
 
         while let Some(token) = tokens.peek() {
             match token {
                 Token::Addition => {
                     tokens.next();
-                    let right = Box::new(Expression::parse(tokens)?);
-                    node = Expression::BinaryOperation {
-                        operator: BinaryOperator::Addition,
+                    let right = Box::new(Expression::term(tokens)?);
+                    node = Expression::MathOperation {
+                        operator: MathOperator::Addition,
                         left: Box::new(node),
                         right,
                     };
                 }
                 Token::Negation => {
                     tokens.next();
-                    let right = Box::new(Expression::parse(tokens)?);
-                    node = Expression::BinaryOperation {
-                        operator: BinaryOperator::Addition,
+                    let right = Box::new(Expression::term(tokens)?);
+                    node = Expression::MathOperation {
+                        operator: MathOperator::Addition,
                         left: Box::new(node),
                         right: Box::new(Expression::UnaryOperation {
                             operator: UnaryOperator::Negation,
@@ -181,18 +333,18 @@ impl Expression {
             match token {
                 Token::Multiplication => {
                     tokens.next();
-                    let right = Box::new(Self::term(tokens)?);
-                    node = Expression::BinaryOperation {
-                        operator: BinaryOperator::Multiplication,
+                    let right = Box::new(Expression::term(tokens)?);
+                    node = Expression::MathOperation {
+                        operator: MathOperator::Multiplication,
                         left: Box::new(node),
                         right,
                     };
                 }
                 Token::Division => {
                     tokens.next();
-                    let right = Box::new(Self::term(tokens)?);
-                    node = Expression::BinaryOperation {
-                        operator: BinaryOperator::Division,
+                    let right = Box::new(Expression::term(tokens)?);
+                    node = Expression::MathOperation {
+                        operator: MathOperator::Division,
                         left: Box::new(node),
                         right,
                     };
@@ -307,8 +459,8 @@ mod tests {
             Token::Addition,
             Token::Integer(2),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Addition,
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::Integer(2))
         }
@@ -319,8 +471,8 @@ mod tests {
             Token::Negation,
             Token::Integer(2),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Addition,
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::UnaryOperation {
                 operator: UnaryOperator::Negation,
@@ -334,8 +486,8 @@ mod tests {
             Token::Multiplication,
             Token::Integer(2),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Multiplication,
+        Expression::MathOperation {
+            operator: MathOperator::Multiplication,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::Integer(2))
         }
@@ -346,8 +498,8 @@ mod tests {
             Token::Division,
             Token::Integer(2),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Division,
+        Expression::MathOperation {
+            operator: MathOperator::Division,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::Integer(2))
         }
@@ -361,11 +513,11 @@ mod tests {
             Token::Multiplication,
             Token::Integer(3),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Addition,
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
             left: Box::new(Expression::Integer(1)),
-            right: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Multiplication,
+            right: Box::new(Expression::MathOperation {
+                operator: MathOperator::Multiplication,
                 left: Box::new(Expression::Integer(2)),
                 right: Box::new(Expression::Integer(3))
             })
@@ -379,10 +531,10 @@ mod tests {
             Token::Addition,
             Token::Integer(3),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Addition,
-            left: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Multiplication,
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
+            left: Box::new(Expression::MathOperation {
+                operator: MathOperator::Multiplication,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::Integer(2))
             }),
@@ -397,11 +549,11 @@ mod tests {
             Token::Division,
             Token::Integer(3),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Multiplication,
+        Expression::MathOperation {
+            operator: MathOperator::Multiplication,
             left: Box::new(Expression::Integer(1)),
-            right: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Division,
+            right: Box::new(Expression::MathOperation {
+                operator: MathOperator::Division,
                 left: Box::new(Expression::Integer(2)),
                 right: Box::new(Expression::Integer(3))
             })
@@ -415,11 +567,11 @@ mod tests {
             Token::Multiplication,
             Token::Integer(3),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Division,
+        Expression::MathOperation {
+            operator: MathOperator::Division,
             left: Box::new(Expression::Integer(1)),
-            right: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Multiplication,
+            right: Box::new(Expression::MathOperation {
+                operator: MathOperator::Multiplication,
                 left: Box::new(Expression::Integer(2)),
                 right: Box::new(Expression::Integer(3))
             })
@@ -435,14 +587,14 @@ mod tests {
             Token::Division,
             Token::Integer(4),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Addition,
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
             left: Box::new(Expression::Integer(1)),
-            right: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Multiplication,
+            right: Box::new(Expression::MathOperation {
+                operator: MathOperator::Multiplication,
                 left: Box::new(Expression::Integer(2)),
-                right: Box::new(Expression::BinaryOperation {
-                    operator: BinaryOperator::Division,
+                right: Box::new(Expression::MathOperation {
+                    operator: MathOperator::Division,
                     left: Box::new(Expression::Integer(3)),
                     right: Box::new(Expression::Integer(4))
                 })
@@ -459,14 +611,14 @@ mod tests {
             Token::Multiplication,
             Token::Integer(4),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Addition,
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
             left: Box::new(Expression::Integer(1)),
-            right: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Division,
+            right: Box::new(Expression::MathOperation {
+                operator: MathOperator::Division,
                 left: Box::new(Expression::Integer(2)),
-                right: Box::new(Expression::BinaryOperation {
-                    operator: BinaryOperator::Multiplication,
+                right: Box::new(Expression::MathOperation {
+                    operator: MathOperator::Multiplication,
                     left: Box::new(Expression::Integer(3)),
                     right: Box::new(Expression::Integer(4))
                 })
@@ -483,15 +635,15 @@ mod tests {
             Token::Division,
             Token::Integer(4),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Addition,
-            left: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Multiplication,
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
+            left: Box::new(Expression::MathOperation {
+                operator: MathOperator::Multiplication,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::Integer(2))
             }),
-            right: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Division,
+            right: Box::new(Expression::MathOperation {
+                operator: MathOperator::Division,
                 left: Box::new(Expression::Integer(3)),
                 right: Box::new(Expression::Integer(4))
             })
@@ -507,13 +659,13 @@ mod tests {
             Token::Addition,
             Token::Integer(4),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Addition,
-            left: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Multiplication,
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
+            left: Box::new(Expression::MathOperation {
+                operator: MathOperator::Multiplication,
                 left: Box::new(Expression::Integer(1)),
-                right: Box::new(Expression::BinaryOperation {
-                    operator: BinaryOperator::Division,
+                right: Box::new(Expression::MathOperation {
+                    operator: MathOperator::Division,
                     left: Box::new(Expression::Integer(2)),
                     right: Box::new(Expression::Integer(3))
                 })
@@ -538,8 +690,8 @@ mod tests {
             Token::Integer(2),
             Token::CloseParenthesis,
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Addition,
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::Integer(2))
         }
@@ -554,10 +706,10 @@ mod tests {
             Token::Multiplication,
             Token::Integer(3),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Multiplication,
-            left: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Addition,
+        Expression::MathOperation {
+            operator: MathOperator::Multiplication,
+            left: Box::new(Expression::MathOperation {
+                operator: MathOperator::Addition,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::Integer(2))
             }),
@@ -571,8 +723,8 @@ mod tests {
             Token::Negation,
             Token::Integer(2),
         ],
-        Expression::BinaryOperation {
-            operator: BinaryOperator::Addition,
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::UnaryOperation {
                 operator: UnaryOperator::Negation,
@@ -595,8 +747,8 @@ mod tests {
         ],
         Expression::UnaryOperation {
             operator: UnaryOperator::BitwiseNot,
-            operand: Box::new(Expression::BinaryOperation {
-                operator: BinaryOperator::Addition,
+            operand: Box::new(Expression::MathOperation {
+                operator: MathOperator::Addition,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::UnaryOperation {
                     operator: UnaryOperator::Negation,
@@ -608,7 +760,182 @@ mod tests {
             })
         }
     )]
+    // 1 + ~(2 == 3) + 1
+    #[case::addition_bitwise_not_parenthesis_equal(
+        &[
+            Token::Integer(1),
+            Token::Addition,
+            Token::BitwiseNot,
+            Token::OpenParenthesis,
+            Token::Integer(2),
+            Token::Equal,
+            Token::Integer(3),
+            Token::CloseParenthesis,
+            Token::Addition,
+            Token::Integer(1),
+        ],
+        Expression::MathOperation {
+            operator: MathOperator::Addition,
+            left: Box::new(Expression::MathOperation {
+                operator: MathOperator::Addition,
+                left: Box::new(Expression::Integer(1)),
+                right: Box::new(Expression::UnaryOperation {
+                    operator: UnaryOperator::BitwiseNot,
+                    operand: Box::new(Expression::RelationalOperation {
+                        operator: RelationalOperator::Equal,
+                        left: Box::new(Expression::Integer(2)),
+                        right: Box::new(Expression::Integer(3))
+                    })
+                })
+            }),
+            right: Box::new(Expression::Integer(1))
+        }
+    )]
     fn test_expression(#[case] tokens: &[Token], #[case] expected: Expression) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let expression = Expression::parse(&mut tokens).unwrap();
+
+        assert_eq!(expression, expected);
+    }
+
+    #[rstest]
+    #[case::logical_and(
+        &[
+            Token::Integer(1),
+            Token::LogicalAnd,
+            Token::Integer(2),
+        ],
+        Expression::LogicalOperation {
+            operator: LogicalOperator::And,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::logical_or(
+        &[
+            Token::Integer(1),
+            Token::LogicalOr,
+            Token::Integer(2),
+        ],
+        Expression::LogicalOperation {
+            operator: LogicalOperator::Or,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    fn test_logical_expression(#[case] tokens: &[Token], #[case] expected: Expression) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let expression = Expression::parse(&mut tokens).unwrap();
+
+        assert_eq!(expression, expected);
+    }
+
+    #[rstest]
+    #[case::equal(
+        &[
+            Token::Integer(1),
+            Token::Equal,
+            Token::Integer(2),
+        ],
+        Expression::RelationalOperation {
+            operator: RelationalOperator::Equal,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::not_equal(
+        &[
+            Token::Integer(1),
+            Token::NotEqual,
+            Token::Integer(2),
+        ],
+        Expression::RelationalOperation {
+            operator: RelationalOperator::NotEqual,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::equal_combined(
+        &[
+            Token::Integer(1),
+            Token::Addition,
+            Token::Integer(2),
+            Token::Equal,
+            Token::Integer(3),
+            Token::Multiplication,
+            Token::Integer(4),
+        ],
+        Expression::RelationalOperation {
+            operator: RelationalOperator::Equal,
+            left: Box::new(Expression::MathOperation {
+                operator: MathOperator::Addition,
+                left: Box::new(Expression::Integer(1)),
+                right: Box::new(Expression::Integer(2))
+            }),
+            right: Box::new(Expression::MathOperation {
+                operator: MathOperator::Multiplication,
+                left: Box::new(Expression::Integer(3)),
+                right: Box::new(Expression::Integer(4))
+            })
+        }
+    )]
+    fn test_equality_expression(#[case] tokens: &[Token], #[case] expected: Expression) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let expression = Expression::parse(&mut tokens).unwrap();
+
+        assert_eq!(expression, expected);
+    }
+
+    #[rstest]
+    #[case::less_than(
+        &[
+            Token::Integer(1),
+            Token::LessThan,
+            Token::Integer(2),
+        ],
+        Expression::RelationalOperation {
+            operator: RelationalOperator::LessThan,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::less_than_or_equal(
+        &[
+            Token::Integer(1),
+            Token::LessThanOrEqual,
+            Token::Integer(2),
+        ],
+        Expression::RelationalOperation {
+            operator: RelationalOperator::LessThanOrEqual,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::greater_than(
+        &[
+            Token::Integer(1),
+            Token::GreaterThan,
+            Token::Integer(2),
+        ],
+        Expression::RelationalOperation {
+            operator: RelationalOperator::GreaterThan,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::greater_than_or_equal(
+        &[
+            Token::Integer(1),
+            Token::GreaterThanOrEqual,
+            Token::Integer(2),
+        ],
+        Expression::RelationalOperation {
+            operator: RelationalOperator::GreaterThanOrEqual,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    fn test_relational_expression(#[case] tokens: &[Token], #[case] expected: Expression) {
         let mut tokens = tokens.iter().cloned().peekable();
         let expression = Expression::parse(&mut tokens).unwrap();
 

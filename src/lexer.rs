@@ -22,6 +22,14 @@ pub enum Token {
     Addition,
     Multiplication,
     Division,
+    LogicalAnd,
+    LogicalOr,
+    Equal,
+    NotEqual,
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
 }
 
 impl<TInput> Lexer<TInput>
@@ -45,18 +53,65 @@ where
         }
 
         while let Some(ch) = self.input.next() {
-            return match ch {
+            let next = match ch {
                 '{' => Some(Token::OpenBrace),
                 '}' => Some(Token::CloseBrace),
                 '(' => Some(Token::OpenParenthesis),
                 ')' => Some(Token::CloseParenthesis),
                 ';' => Some(Token::SemiColon),
-                '!' => Some(Token::LogicalNot),
+                '!' => {
+                    if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::NotEqual)
+                    } else {
+                        Some(Token::LogicalNot)
+                    }
+                }
                 '~' => Some(Token::BitwiseNot),
                 '-' => Some(Token::Negation),
                 '+' => Some(Token::Addition),
                 '*' => Some(Token::Multiplication),
                 '/' => Some(Token::Division),
+                '&' => {
+                    if let Some('&') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::LogicalAnd)
+                    } else {
+                        None
+                    }
+                }
+                '|' => {
+                    if let Some('|') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::LogicalOr)
+                    } else {
+                        None
+                    }
+                }
+                '=' => {
+                    if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Equal)
+                    } else {
+                        None
+                    }
+                }
+                '<' => {
+                    if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::LessThanOrEqual)
+                    } else {
+                        Some(Token::LessThan)
+                    }
+                }
+                '>' => {
+                    if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::GreaterThanOrEqual)
+                    } else {
+                        Some(Token::GreaterThan)
+                    }
+                }
                 '0'..='9' => {
                     let mut number = ch.to_digit(10).unwrap() as i32;
                     while let Some(ch) = self.input.peek() {
@@ -91,6 +146,13 @@ where
                     }
                 }
             };
+
+            return if let Some(token) = next {
+                Some(token)
+            } else {
+                self.end = true;
+                None
+            };
         }
 
         self.end = true;
@@ -117,6 +179,14 @@ mod tests {
     #[case::addition("+", vec![Token::Addition, Token::EndOfFile])]
     #[case::multiplication("*", vec![Token::Multiplication, Token::EndOfFile])]
     #[case::division("/", vec![Token::Division, Token::EndOfFile])]
+    #[case::and("&&", vec![Token::LogicalAnd, Token::EndOfFile])]
+    #[case::or("||", vec![Token::LogicalOr, Token::EndOfFile])]
+    #[case::equal("==", vec![Token::Equal, Token::EndOfFile])]
+    #[case::not_equal("!=", vec![Token::NotEqual, Token::EndOfFile])]
+    #[case::less_than("<", vec![Token::LessThan, Token::EndOfFile])]
+    #[case::less_than_or_equal("<=", vec![Token::LessThanOrEqual, Token::EndOfFile])]
+    #[case::greater_than(">", vec![Token::GreaterThan, Token::EndOfFile])]
+    #[case::greater_than_or_equal(">=", vec![Token::GreaterThanOrEqual, Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
