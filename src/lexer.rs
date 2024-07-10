@@ -19,6 +19,9 @@ pub enum Token {
     Negation,
     LogicalNot,
     BitwiseNot,
+    Addition,
+    Multiplication,
+    Division,
 }
 
 impl<TInput> Lexer<TInput>
@@ -51,6 +54,9 @@ where
                 '!' => Some(Token::LogicalNot),
                 '~' => Some(Token::BitwiseNot),
                 '-' => Some(Token::Negation),
+                '+' => Some(Token::Addition),
+                '*' => Some(Token::Multiplication),
+                '/' => Some(Token::Division),
                 '0'..='9' => {
                     let mut number = ch.to_digit(10).unwrap() as i32;
                     while let Some(ch) = self.input.peek() {
@@ -108,6 +114,9 @@ mod tests {
     #[case::negation("-", vec![Token::Negation, Token::EndOfFile])]
     #[case::logical_not("!", vec![Token::LogicalNot, Token::EndOfFile])]
     #[case::bitwise_not("~", vec![Token::BitwiseNot, Token::EndOfFile])]
+    #[case::addition("+", vec![Token::Addition, Token::EndOfFile])]
+    #[case::multiplication("*", vec![Token::Multiplication, Token::EndOfFile])]
+    #[case::division("/", vec![Token::Division, Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
