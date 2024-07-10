@@ -75,6 +75,10 @@ enum Instruction {
     Mul(String),
     #[display("div {}", _0)]
     Div(String),
+    #[display("je {}", _0)]
+    Je(String),
+    #[display("jmp {}", _0)]
+    Jmp(String),
 }
 
 enum FunctionContext {
@@ -213,21 +217,51 @@ fn generate_relational_operator(
     instructions
 }
 
+static mut LABEL_COUNTER: u64 = 0;
+
 fn generate_logical_operator(
     operator: LogicalOperator,
     left: Expression,
     right: Expression,
 ) -> Vec<Instruction> {
     let mut instructions = vec![];
-    // Generate left expression instructions and push the result to the stack
+    // Generate left expression instructions and store it in RAX
     instructions.extend(generate_expression(left));
-    instructions.push(Instruction::Push(Register64::Rax.to_string()));
-    // Generate right expression instructions and store the result in RAX
-    instructions.extend(generate_expression(right));
 
     match operator {
         LogicalOperator::And => todo!(),
-        LogicalOperator::Or => todo!(),
+        LogicalOperator::Or => {
+            instructions.push(Instruction::Cmp(
+                "$0".to_string(),
+                Register64::Rax.to_string(),
+            ));
+            let label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            let exit_label = format!(".E{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            instructions.push(Instruction::Je(label.clone()));
+            instructions.push(Instruction::Mov(
+                "$1".to_string(),
+                Register64::Rax.to_string(),
+            ));
+            instructions.push(Instruction::Jmp(exit_label.clone()));
+            instructions.push(Instruction::Label(label));
+            instructions.extend(generate_expression(right));
+            instructions.push(Instruction::Cmp(
+                "$0".to_string(),
+                Register64::Rax.to_string(),
+            ));
+            instructions.push(Instruction::Mov(
+                "$0".to_string(),
+                Register64::Rax.to_string(),
+            ));
+            instructions.push(Instruction::Setne(Register8::Al.to_string()));
+            instructions.push(Instruction::Label(exit_label));
+        }
     }
 
     instructions
