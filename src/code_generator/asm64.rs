@@ -46,6 +46,8 @@ enum Instruction {
     Globl(String),
     #[display("neg {}", _0)]
     Neg(String),
+    #[display("not {}", _0)]
+    Not(String),
     #[display("cmp {}, {}", _0, _1)]
     Cmp(String, String),
     #[display("sete {}", _0)]
@@ -186,7 +188,10 @@ fn generate_math_operator(
 /// Generates unary operator instructions and places the result in RAX
 fn generate_unary_operator(operator: UnaryOperator) -> Vec<Instruction> {
     match operator {
-        UnaryOperator::Negation | UnaryOperator::BitwiseNot => {
+        UnaryOperator::BitwiseNot => {
+            vec![Instruction::Not(Register8::Al.to_string())]
+        }
+        UnaryOperator::Negation => {
             vec![Instruction::Neg(Register64::Rax.to_string())]
         }
         UnaryOperator::LogicalNot => {
