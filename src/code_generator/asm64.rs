@@ -4,6 +4,7 @@ use crate::parser::{
     UnaryOperator,
 };
 use derive_more::{Display, Error};
+use std::collections::HashMap;
 use std::io::Write;
 
 pub struct StringyAssembly64CodeGenerator;
@@ -11,6 +12,14 @@ pub struct StringyAssembly64CodeGenerator;
 #[derive(Error, Debug, Display)]
 pub enum Asm64CodeGenerationError {
     BufferError(std::io::Error),
+    #[display("Variable {} already declared", variable)]
+    VariableAlreadyDeclared {
+        variable: String,
+    },
+    #[display("Variable {} not declared", variable)]
+    VariableNotDeclared {
+        variable: String,
+    },
 }
 
 impl<B> CodeGenerator<B, Asm64CodeGenerationError> for StringyAssembly64CodeGenerator
@@ -19,7 +28,7 @@ where
 {
     fn generate(self, node: Program, buffer: &mut B) -> Result<(), Asm64CodeGenerationError> {
         for function in node.functions {
-            let instructions = generate_function(function);
+            let instructions = generate_function(function)?;
             for instruction in instructions {
                 let line = match instruction {
                     Instruction::Label(_) | Instruction::Globl(_) => format!("{}", instruction),
@@ -83,8 +92,19 @@ enum Instruction {
     Jmp(String),
 }
 
-enum FunctionContext {
-    Main,
+#[derive(Default)]
+struct Context {
+    variables: HashMap<String, u64>,
+    stack_index: u64,
+}
+
+impl Context {
+    fn epilogue(&self) -> Vec<Instruction> {
+        vec![
+            Instruction::Mov(Register64::Rbp.to_string(), Register64::Rsp.to_string()),
+            Instruction::Pop(Register64::Rbp.to_string()),
+        ]
+    }
 }
 
 #[derive(Display, Clone, Copy)]
@@ -95,6 +115,10 @@ enum Register64 {
     Rdi,
     #[display("%rdx")]
     Rdx,
+    #[display("%rbp")]
+    Rbp,
+    #[display("%rsp")]
+    Rsp,
 }
 
 #[derive(Display, Clone, Copy)]
@@ -103,90 +127,149 @@ enum Register8 {
     Al,
 }
 
-fn generate_function(function: Function) -> Vec<Instruction> {
-    let Function { name, body } = function;
-    let context = match name.as_str() {
-        "main" => FunctionContext::Main,
-        _ => todo!(),
-    };
-    let mut instructions = match context {
-        FunctionContext::Main => {
-            vec![
-                Instruction::Globl("_start".to_string()),
-                Instruction::Label("_start".to_string()),
-            ]
-        }
-    };
-    instructions.extend(generate_statement(body, context));
-    instructions
+fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
+    let Function { body, .. } = function;
+    let mut context = Default::default();
+    let mut instructions = vec![
+        Instruction::Globl("_start".to_string()),
+        Instruction::Label("_start".to_string()),
+    ];
+    // insert prologue
+    instructions.push(Instruction::Push(Register64::Rbp.to_string()));
+    instructions.push(Instruction::Mov(
+        Register64::Rsp.to_string(),
+        Register64::Rbp.to_string(),
+    ));
+    instructions.extend(generate_statement(body, &mut context)?);
+
+    // brute force return 0 for main, c standard, I will fix it later :) clueless
+    instructions.extend(context.epilogue());
+    instructions.push(Instruction::Mov(
+        "$0".to_string(),
+        Register64::Rdi.to_string(),
+    ));
+    instructions.push(Instruction::Mov(
+        "$60".to_string(),
+        Register64::Rax.to_string(),
+    ));
+    instructions.push(Instruction::Syscall);
+    Ok(instructions)
 }
 
-fn generate_statement(statement: Statement, context: FunctionContext) -> Vec<Instruction> {
+fn generate_statement(
+    statement: Statement,
+    context: &mut Context,
+) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
     match statement {
         Statement::Return { expression } => {
-            let expression = generate_expression(expression);
-            match context {
-                // It is stupid that it moves RAX to RDI, but it is what it is :)
-                FunctionContext::Main => expression
-                    .iter()
-                    .chain(&[
-                        Instruction::Mov(Register64::Rax.to_string(), Register64::Rdi.to_string()),
-                        Instruction::Mov("$60".to_string(), Register64::Rax.to_string()),
-                        Instruction::Syscall,
-                    ])
-                    .cloned()
-                    .collect(),
-            }
+            let expression = generate_expression(expression, &context.variables)?;
+            // It is stupid that it moves RAX to RDI, but it is what it is :)
+            Ok(expression
+                .iter()
+                .chain(context.epilogue().iter())
+                .chain(&[
+                    Instruction::Mov(Register64::Rax.to_string(), Register64::Rdi.to_string()),
+                    Instruction::Mov("$60".to_string(), Register64::Rax.to_string()),
+                    Instruction::Syscall,
+                ])
+                .cloned()
+                .collect())
         }
-        Statement::Declaration { .. } => todo!(),
-        Statement::StatementList { .. } => todo!(),
-        Statement::Expression(_) => todo!(),
+        Statement::Declaration {
+            variable,
+            expression,
+        } => {
+            if context.variables.contains_key(&variable) {
+                return Err(Asm64CodeGenerationError::VariableAlreadyDeclared { variable });
+            }
+            let mut instructions = vec![];
+            if let Some(expression) = expression {
+                instructions.extend(generate_expression(expression, &context.variables)?);
+            }
+            instructions.push(Instruction::Push(Register64::Rax.to_string()));
+            context.stack_index += 8;
+            context.variables.insert(variable, context.stack_index);
+            Ok(instructions)
+        }
+        Statement::StatementList(statements) => Ok(statements
+            .into_iter()
+            .map(|statement| generate_statement(statement, context))
+            .collect::<Result<Vec<Vec<Instruction>>, Asm64CodeGenerationError>>()?
+            .into_iter()
+            .flatten()
+            .collect()),
+        Statement::Expression(expression) => generate_expression(expression, &context.variables),
     }
 }
 
 /// Generates expression instructions and places the result in RAX
-fn generate_expression(expression: Expression) -> Vec<Instruction> {
-    match expression {
-        Expression::Integer(value) => vec![Instruction::Mov(
+fn generate_expression(
+    expression: Expression,
+    variables: &HashMap<String, u64>,
+) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
+    let result = match expression {
+        Expression::Integer(value) => Ok(vec![Instruction::Mov(
             format!("${}", value.to_string()),
             Register64::Rax.to_string(),
-        )],
+        )]),
         Expression::UnaryOperation { operator, operand } => {
-            let operand = generate_expression(*operand);
+            let operand = generate_expression(*operand, variables)?;
             let operator = generate_unary_operator(operator);
-            operand.iter().chain(&operator).cloned().collect()
+            Ok(operand.iter().chain(&operator).cloned().collect())
         }
         Expression::MathOperation {
             operator,
             left,
             right,
-        } => generate_math_operator(operator, *left, *right),
+        } => generate_math_operator(operator, *left, *right, variables),
         Expression::LogicalOperation {
             operator,
             left,
             right,
-        } => generate_logical_operator(operator, *left, *right),
+        } => generate_logical_operator(operator, *left, *right, variables),
         Expression::RelationalOperation {
             operator,
             left,
             right,
-        } => generate_relational_operator(operator, *left, *right),
-        Expression::Assignment { .. } => todo!(),
-        Expression::Variable(_) => todo!(),
-    }
+        } => generate_relational_operator(operator, *left, *right, variables),
+        Expression::Variable(name) => {
+            let offset = variables
+                .get(&name)
+                .ok_or(Asm64CodeGenerationError::VariableNotDeclared { variable: name })?;
+            Ok(vec![Instruction::Mov(
+                format!("-{}(%rbp)", offset),
+                Register64::Rax.to_string(),
+            )])
+        }
+        Expression::Assignment {
+            variable,
+            expression,
+        } => {
+            let mut instructions = vec![];
+            instructions.extend(generate_expression(*expression, variables)?);
+            instructions.push(Instruction::Mov(
+                Register64::Rax.to_string(),
+                format!("-{}(%rbp)", variables.get(&variable).unwrap()),
+            ));
+            Ok(instructions)
+        }
+    };
+
+    result
 }
 
 fn generate_relational_operator(
     operator: RelationalOperator,
     left: Expression,
     right: Expression,
-) -> Vec<Instruction> {
+    variables: &HashMap<String, u64>,
+) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
     let mut instructions = vec![];
     // Generate left expression instructions and push the result to the stack
-    instructions.extend(generate_expression(left));
+    instructions.extend(generate_expression(left, variables)?);
     instructions.push(Instruction::Push(Register64::Rax.to_string()));
     // Generate right expression instructions and store the result in RAX
-    instructions.extend(generate_expression(right));
+    instructions.extend(generate_expression(right, variables)?);
     instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
     // Compare the two values
     instructions.push(Instruction::Cmp(
@@ -221,7 +304,7 @@ fn generate_relational_operator(
         }
     }
 
-    instructions
+    Ok(instructions)
 }
 
 static mut LABEL_COUNTER: u64 = 0;
@@ -230,10 +313,11 @@ fn generate_logical_operator(
     operator: LogicalOperator,
     left: Expression,
     right: Expression,
-) -> Vec<Instruction> {
+    variables: &HashMap<String, u64>,
+) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
     let mut instructions = vec![];
     // Generate left expression instructions and store it in RAX
-    instructions.extend(generate_expression(left));
+    instructions.extend(generate_expression(left, variables)?);
 
     let label = format!(".L{}", unsafe {
         LABEL_COUNTER += 1;
@@ -263,7 +347,7 @@ fn generate_logical_operator(
     });
     instructions.push(Instruction::Jmp(exit_label.clone()));
     instructions.push(Instruction::Label(label));
-    instructions.extend(generate_expression(right));
+    instructions.extend(generate_expression(right, variables)?);
     instructions.push(Instruction::Cmp(
         "$0".to_string(),
         Register64::Rax.to_string(),
@@ -276,19 +360,20 @@ fn generate_logical_operator(
 
     instructions.push(Instruction::Label(exit_label));
 
-    instructions
+    Ok(instructions)
 }
 
 fn generate_math_operator(
     operator: MathOperator,
     left: Expression,
     right: Expression,
-) -> Vec<Instruction> {
+    variables: &HashMap<String, u64>,
+) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
     let mut instructions = vec![];
-    let left = generate_expression(left);
+    let left = generate_expression(left, variables)?;
     instructions.extend(left);
     instructions.push(Instruction::Push(Register64::Rax.to_string()));
-    let right = generate_expression(right);
+    let right = generate_expression(right, variables)?;
     instructions.extend(right);
 
     match operator {
@@ -317,7 +402,7 @@ fn generate_math_operator(
         }
     }
 
-    instructions
+    Ok(instructions)
 }
 
 /// Generates unary operator instructions and places the result in RAX
