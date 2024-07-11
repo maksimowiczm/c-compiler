@@ -51,8 +51,8 @@ pub enum Expression {
         operator: UnaryOperator,
         operand: Box<Expression>,
     },
-    MathOperation {
-        operator: MathOperator,
+    Operation {
+        operator: Operator,
         left: Box<Expression>,
         right: Box<Expression>,
     },
@@ -78,13 +78,21 @@ pub enum UnaryOperator {
     Negation,
     BitwiseNot,
     LogicalNot,
+    Increment,
+    Decrement,
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
-pub enum MathOperator {
+pub enum Operator {
     Addition,
     Multiplication,
     Division,
+    Modulo,
+    BitwiseOr,
+    BitwiseAnd,
+    BitwiseXor,
+    ShiftLeft,
+    ShiftRight,
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -178,7 +186,13 @@ impl Statement {
         let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         match peek {
-            Token::Word(_) | Token::Integer(_) => {
+            Token::Word(_)
+            | Token::Integer(_)
+            | Token::Increment
+            | Token::Decrement
+            | Token::Negation
+            | Token::BitwiseNot
+            | Token::LogicalNot => {
                 let expression = Expression::parse(tokens)?;
                 expect_token(tokens, Token::SemiColon)?;
                 return Ok(Statement::Expression(expression));
@@ -251,7 +265,7 @@ fn declaration(
 impl Expression {
     fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
         match Expression::logical_or(tokens)? {
-            // <id> "=" <exp>
+            // <id> <assignment> <exp>
             Expression::Variable(id) => {
                 if !matches!(tokens.peek(), Some(Token::Assignment(_))) {
                     return Ok(Expression::Variable(id));
@@ -265,16 +279,16 @@ impl Expression {
                         }),
                         Assignment::PlusEqual => Ok(Expression::Assignment {
                             variable: id.clone(),
-                            expression: Box::new(Expression::MathOperation {
-                                operator: MathOperator::Addition,
+                            expression: Box::new(Expression::Operation {
+                                operator: Operator::Addition,
                                 left: Box::new(Expression::Variable(id)),
                                 right,
                             }),
                         }),
                         Assignment::MinusEqual => Ok(Expression::Assignment {
                             variable: id.clone(),
-                            expression: Box::new(Expression::MathOperation {
-                                operator: MathOperator::Addition,
+                            expression: Box::new(Expression::Operation {
+                                operator: Operator::Addition,
                                 left: Box::new(Expression::Variable(id)),
                                 right: Box::new(Expression::UnaryOperation {
                                     operator: UnaryOperator::Negation,
@@ -284,32 +298,64 @@ impl Expression {
                         }),
                         Assignment::MultiplyEqual => Ok(Expression::Assignment {
                             variable: id.clone(),
-                            expression: Box::new(Expression::MathOperation {
-                                operator: MathOperator::Multiplication,
+                            expression: Box::new(Expression::Operation {
+                                operator: Operator::Multiplication,
                                 left: Box::new(Expression::Variable(id)),
                                 right,
                             }),
                         }),
                         Assignment::DivideEqual => Ok(Expression::Assignment {
                             variable: id.clone(),
-                            expression: Box::new(Expression::MathOperation {
-                                operator: MathOperator::Division,
+                            expression: Box::new(Expression::Operation {
+                                operator: Operator::Division,
                                 left: Box::new(Expression::Variable(id)),
                                 right,
                             }),
                         }),
                         Assignment::AndEqual => Ok(Expression::Assignment {
                             variable: id.clone(),
-                            expression: Box::new(Expression::LogicalOperation {
-                                operator: LogicalOperator::And,
+                            expression: Box::new(Expression::Operation {
+                                operator: Operator::BitwiseAnd,
                                 left: Box::new(Expression::Variable(id)),
                                 right,
                             }),
                         }),
                         Assignment::OrEqual => Ok(Expression::Assignment {
                             variable: id.clone(),
-                            expression: Box::new(Expression::LogicalOperation {
-                                operator: LogicalOperator::Or,
+                            expression: Box::new(Expression::Operation {
+                                operator: Operator::BitwiseOr,
+                                left: Box::new(Expression::Variable(id)),
+                                right,
+                            }),
+                        }),
+                        Assignment::ShiftLeftEqual => Ok(Expression::Assignment {
+                            variable: id.clone(),
+                            expression: Box::new(Expression::Operation {
+                                operator: Operator::ShiftLeft,
+                                left: Box::new(Expression::Variable(id)),
+                                right,
+                            }),
+                        }),
+                        Assignment::ShiftRightEqual => Ok(Expression::Assignment {
+                            variable: id.clone(),
+                            expression: Box::new(Expression::Operation {
+                                operator: Operator::ShiftRight,
+                                left: Box::new(Expression::Variable(id)),
+                                right,
+                            }),
+                        }),
+                        Assignment::ModuloEqual => Ok(Expression::Assignment {
+                            variable: id.clone(),
+                            expression: Box::new(Expression::Operation {
+                                operator: Operator::Modulo,
+                                left: Box::new(Expression::Variable(id)),
+                                right,
+                            }),
+                        }),
+                        Assignment::XorEqual => Ok(Expression::Assignment {
+                            variable: id.clone(),
+                            expression: Box::new(Expression::Operation {
+                                operator: Operator::BitwiseXor,
                                 left: Box::new(Expression::Variable(id)),
                                 right,
                             }),
@@ -348,7 +394,7 @@ impl Expression {
     fn logical_and(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
     ) -> Result<Self, ParserError> {
-        let mut node = Expression::equality(tokens)?;
+        let mut node = Expression::bitwise_or(tokens)?;
 
         while let Some(token) = tokens.peek() {
             match token {
@@ -357,6 +403,73 @@ impl Expression {
                     let right = Box::new(Expression::parse(tokens)?);
                     node = Expression::LogicalOperation {
                         operator: LogicalOperator::And,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(node)
+    }
+
+    fn bitwise_or(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        let mut node = Expression::bitwise_xor(tokens)?;
+
+        while let Some(token) = tokens.peek() {
+            match token {
+                Token::BitwiseOr => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::Operation {
+                        operator: Operator::BitwiseOr,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(node)
+    }
+
+    fn bitwise_xor(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Result<Self, ParserError> {
+        let mut node = Expression::bitwise_and(tokens)?;
+
+        while let Some(token) = tokens.peek() {
+            match token {
+                Token::BitwiseXor => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::Operation {
+                        operator: Operator::BitwiseXor,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(node)
+    }
+
+    fn bitwise_and(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Result<Self, ParserError> {
+        let mut node = Expression::equality(tokens)?;
+
+        while let Some(token) = tokens.peek() {
+            match token {
+                Token::BitwiseAnd => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::Operation {
+                        operator: Operator::BitwiseAnd,
                         left: Box::new(node),
                         right,
                     };
@@ -399,7 +512,7 @@ impl Expression {
     }
 
     fn relational(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
-        let mut node = Expression::additive(tokens)?;
+        let mut node = Expression::shifting(tokens)?;
 
         while let Some(token) = tokens.peek() {
             match token {
@@ -446,6 +559,36 @@ impl Expression {
         Ok(node)
     }
 
+    fn shifting(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        let mut node = Expression::additive(tokens)?;
+
+        while let Some(token) = tokens.peek() {
+            match token {
+                Token::ShiftLeft => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::Operation {
+                        operator: Operator::ShiftLeft,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                Token::ShiftRight => {
+                    tokens.next();
+                    let right = Box::new(Expression::parse(tokens)?);
+                    node = Expression::Operation {
+                        operator: Operator::ShiftRight,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                _ => break,
+            }
+        }
+
+        Ok(node)
+    }
+
     fn additive(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
         let mut node = Expression::term(tokens)?;
 
@@ -454,8 +597,8 @@ impl Expression {
                 Token::Addition => {
                     tokens.next();
                     let right = Box::new(Expression::term(tokens)?);
-                    node = Expression::MathOperation {
-                        operator: MathOperator::Addition,
+                    node = Expression::Operation {
+                        operator: Operator::Addition,
                         left: Box::new(node),
                         right,
                     };
@@ -463,8 +606,8 @@ impl Expression {
                 Token::Negation => {
                     tokens.next();
                     let right = Box::new(Expression::term(tokens)?);
-                    node = Expression::MathOperation {
-                        operator: MathOperator::Addition,
+                    node = Expression::Operation {
+                        operator: Operator::Addition,
                         left: Box::new(node),
                         right: Box::new(Expression::UnaryOperation {
                             operator: UnaryOperator::Negation,
@@ -487,8 +630,8 @@ impl Expression {
                 Token::Multiplication => {
                     tokens.next();
                     let right = Box::new(Expression::term(tokens)?);
-                    node = Expression::MathOperation {
-                        operator: MathOperator::Multiplication,
+                    node = Expression::Operation {
+                        operator: Operator::Multiplication,
                         left: Box::new(node),
                         right,
                     };
@@ -496,8 +639,17 @@ impl Expression {
                 Token::Division => {
                     tokens.next();
                     let right = Box::new(Expression::term(tokens)?);
-                    node = Expression::MathOperation {
-                        operator: MathOperator::Division,
+                    node = Expression::Operation {
+                        operator: Operator::Division,
+                        left: Box::new(node),
+                        right,
+                    };
+                }
+                Token::Modulo => {
+                    tokens.next();
+                    let right = Box::new(Expression::term(tokens)?);
+                    node = Expression::Operation {
+                        operator: Operator::Modulo,
                         left: Box::new(node),
                         right,
                     };
@@ -515,7 +667,25 @@ impl Expression {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         match token {
-            Token::Word(id) => Ok(Expression::Variable(id)),
+            Token::Word(id) => {
+                let peek = tokens.peek();
+
+                if let Some(Token::Increment) = peek {
+                    tokens.next();
+                    return Ok(Expression::UnaryOperation {
+                        operator: UnaryOperator::Increment,
+                        operand: Box::new(Expression::Variable(id)),
+                    });
+                } else if let Some(Token::Decrement) = peek {
+                    tokens.next();
+                    return Ok(Expression::UnaryOperation {
+                        operator: UnaryOperator::Decrement,
+                        operand: Box::new(Expression::Variable(id)),
+                    });
+                }
+
+                Ok(Expression::Variable(id))
+            }
             Token::Integer(value) => Ok(Expression::Integer(value as u64)),
             Token::OpenParenthesis => {
                 let node = Expression::parse(tokens)?;
@@ -541,6 +711,20 @@ impl Expression {
                 let factor = Expression::factor(tokens)?;
                 Ok(Expression::UnaryOperation {
                     operator: UnaryOperator::LogicalNot,
+                    operand: Box::new(factor),
+                })
+            }
+            Token::Increment => {
+                let factor = Expression::factor(tokens)?;
+                Ok(Expression::UnaryOperation {
+                    operator: UnaryOperator::Increment,
+                    operand: Box::new(factor),
+                })
+            }
+            Token::Decrement => {
+                let factor = Expression::factor(tokens)?;
+                Ok(Expression::UnaryOperation {
+                    operator: UnaryOperator::Decrement,
                     operand: Box::new(factor),
                 })
             }
@@ -621,8 +805,8 @@ mod tests {
             Token::Addition,
             Token::Integer(2),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
+        Expression::Operation {
+            operator: Operator::Addition,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::Integer(2))
         }
@@ -633,8 +817,8 @@ mod tests {
             Token::Negation,
             Token::Integer(2),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
+        Expression::Operation {
+            operator: Operator::Addition,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::UnaryOperation {
                 operator: UnaryOperator::Negation,
@@ -648,8 +832,8 @@ mod tests {
             Token::Multiplication,
             Token::Integer(2),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Multiplication,
+        Expression::Operation {
+            operator: Operator::Multiplication,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::Integer(2))
         }
@@ -660,8 +844,8 @@ mod tests {
             Token::Division,
             Token::Integer(2),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Division,
+        Expression::Operation {
+            operator: Operator::Division,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::Integer(2))
         }
@@ -675,11 +859,11 @@ mod tests {
             Token::Multiplication,
             Token::Integer(3),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
+        Expression::Operation {
+            operator: Operator::Addition,
             left: Box::new(Expression::Integer(1)),
-            right: Box::new(Expression::MathOperation {
-                operator: MathOperator::Multiplication,
+            right: Box::new(Expression::Operation {
+                operator: Operator::Multiplication,
                 left: Box::new(Expression::Integer(2)),
                 right: Box::new(Expression::Integer(3))
             })
@@ -693,10 +877,10 @@ mod tests {
             Token::Addition,
             Token::Integer(3),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
-            left: Box::new(Expression::MathOperation {
-                operator: MathOperator::Multiplication,
+        Expression::Operation {
+            operator: Operator::Addition,
+            left: Box::new(Expression::Operation {
+                operator: Operator::Multiplication,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::Integer(2))
             }),
@@ -711,11 +895,11 @@ mod tests {
             Token::Division,
             Token::Integer(3),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Multiplication,
+        Expression::Operation {
+            operator: Operator::Multiplication,
             left: Box::new(Expression::Integer(1)),
-            right: Box::new(Expression::MathOperation {
-                operator: MathOperator::Division,
+            right: Box::new(Expression::Operation {
+                operator: Operator::Division,
                 left: Box::new(Expression::Integer(2)),
                 right: Box::new(Expression::Integer(3))
             })
@@ -729,11 +913,11 @@ mod tests {
             Token::Multiplication,
             Token::Integer(3),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Division,
+        Expression::Operation {
+            operator: Operator::Division,
             left: Box::new(Expression::Integer(1)),
-            right: Box::new(Expression::MathOperation {
-                operator: MathOperator::Multiplication,
+            right: Box::new(Expression::Operation {
+                operator: Operator::Multiplication,
                 left: Box::new(Expression::Integer(2)),
                 right: Box::new(Expression::Integer(3))
             })
@@ -749,14 +933,14 @@ mod tests {
             Token::Division,
             Token::Integer(4),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
+        Expression::Operation {
+            operator: Operator::Addition,
             left: Box::new(Expression::Integer(1)),
-            right: Box::new(Expression::MathOperation {
-                operator: MathOperator::Multiplication,
+            right: Box::new(Expression::Operation {
+                operator: Operator::Multiplication,
                 left: Box::new(Expression::Integer(2)),
-                right: Box::new(Expression::MathOperation {
-                    operator: MathOperator::Division,
+                right: Box::new(Expression::Operation {
+                    operator: Operator::Division,
                     left: Box::new(Expression::Integer(3)),
                     right: Box::new(Expression::Integer(4))
                 })
@@ -773,14 +957,14 @@ mod tests {
             Token::Multiplication,
             Token::Integer(4),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
+        Expression::Operation {
+            operator: Operator::Addition,
             left: Box::new(Expression::Integer(1)),
-            right: Box::new(Expression::MathOperation {
-                operator: MathOperator::Division,
+            right: Box::new(Expression::Operation {
+                operator: Operator::Division,
                 left: Box::new(Expression::Integer(2)),
-                right: Box::new(Expression::MathOperation {
-                    operator: MathOperator::Multiplication,
+                right: Box::new(Expression::Operation {
+                    operator: Operator::Multiplication,
                     left: Box::new(Expression::Integer(3)),
                     right: Box::new(Expression::Integer(4))
                 })
@@ -797,15 +981,15 @@ mod tests {
             Token::Division,
             Token::Integer(4),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
-            left: Box::new(Expression::MathOperation {
-                operator: MathOperator::Multiplication,
+        Expression::Operation {
+            operator: Operator::Addition,
+            left: Box::new(Expression::Operation {
+                operator: Operator::Multiplication,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::Integer(2))
             }),
-            right: Box::new(Expression::MathOperation {
-                operator: MathOperator::Division,
+            right: Box::new(Expression::Operation {
+                operator: Operator::Division,
                 left: Box::new(Expression::Integer(3)),
                 right: Box::new(Expression::Integer(4))
             })
@@ -821,13 +1005,13 @@ mod tests {
             Token::Addition,
             Token::Integer(4),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
-            left: Box::new(Expression::MathOperation {
-                operator: MathOperator::Multiplication,
+        Expression::Operation {
+            operator: Operator::Addition,
+            left: Box::new(Expression::Operation {
+                operator: Operator::Multiplication,
                 left: Box::new(Expression::Integer(1)),
-                right: Box::new(Expression::MathOperation {
-                    operator: MathOperator::Division,
+                right: Box::new(Expression::Operation {
+                    operator: Operator::Division,
                     left: Box::new(Expression::Integer(2)),
                     right: Box::new(Expression::Integer(3))
                 })
@@ -852,8 +1036,8 @@ mod tests {
             Token::Integer(2),
             Token::CloseParenthesis,
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
+        Expression::Operation {
+            operator: Operator::Addition,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::Integer(2))
         }
@@ -868,10 +1052,10 @@ mod tests {
             Token::Multiplication,
             Token::Integer(3),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Multiplication,
-            left: Box::new(Expression::MathOperation {
-                operator: MathOperator::Addition,
+        Expression::Operation {
+            operator: Operator::Multiplication,
+            left: Box::new(Expression::Operation {
+                operator: Operator::Addition,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::Integer(2))
             }),
@@ -885,8 +1069,8 @@ mod tests {
             Token::Negation,
             Token::Integer(2),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
+        Expression::Operation {
+            operator: Operator::Addition,
             left: Box::new(Expression::Integer(1)),
             right: Box::new(Expression::UnaryOperation {
                 operator: UnaryOperator::Negation,
@@ -909,8 +1093,8 @@ mod tests {
         ],
         Expression::UnaryOperation {
             operator: UnaryOperator::BitwiseNot,
-            operand: Box::new(Expression::MathOperation {
-                operator: MathOperator::Addition,
+            operand: Box::new(Expression::Operation {
+                operator: Operator::Addition,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::UnaryOperation {
                     operator: UnaryOperator::Negation,
@@ -936,10 +1120,10 @@ mod tests {
             Token::Addition,
             Token::Integer(1),
         ],
-        Expression::MathOperation {
-            operator: MathOperator::Addition,
-            left: Box::new(Expression::MathOperation {
-                operator: MathOperator::Addition,
+        Expression::Operation {
+            operator: Operator::Addition,
+            left: Box::new(Expression::Operation {
+                operator: Operator::Addition,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::UnaryOperation {
                     operator: UnaryOperator::BitwiseNot,
@@ -956,6 +1140,158 @@ mod tests {
     #[case::variable(
         &[Token::Word("variable".to_string())],
         Expression::Variable("variable".to_string())
+    )]
+    #[case::bitwise_xor(
+        &[
+            Token::Integer(1),
+            Token::BitwiseXor,
+            Token::Integer(2),
+        ],
+        Expression::Operation {
+            operator: Operator::BitwiseXor,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::bitwise_and(
+        &[
+            Token::Integer(1),
+            Token::BitwiseAnd,
+            Token::Integer(2),
+        ],
+        Expression::Operation {
+            operator: Operator::BitwiseAnd,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::bitwise_or(
+        &[
+            Token::Integer(1),
+            Token::BitwiseOr,
+            Token::Integer(2),
+        ],
+        Expression::Operation {
+            operator: Operator::BitwiseOr,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::shift_left(
+        &[
+            Token::Integer(1),
+            Token::ShiftLeft,
+            Token::Integer(2),
+        ],
+        Expression::Operation {
+            operator: Operator::ShiftLeft,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::shift_right(
+        &[
+            Token::Integer(1),
+            Token::ShiftRight,
+            Token::Integer(2),
+        ],
+        Expression::Operation {
+            operator: Operator::ShiftRight,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::modulo(
+        &[
+            Token::Integer(1),
+            Token::Modulo,
+            Token::Integer(2),
+        ],
+        Expression::Operation {
+            operator: Operator::Modulo,
+            left: Box::new(Expression::Integer(1)),
+            right: Box::new(Expression::Integer(2))
+        }
+    )]
+    #[case::increment(
+        &[
+            Token::Increment,
+            Token::Integer(1),
+        ],
+        Expression::UnaryOperation {
+            operator: UnaryOperator::Increment,
+            operand: Box::new(Expression::Integer(1))
+        }
+    )]
+    #[case::decrement(
+        &[
+            Token::Decrement,
+            Token::Integer(1),
+        ],
+        Expression::UnaryOperation {
+            operator: UnaryOperator::Decrement,
+            operand: Box::new(Expression::Integer(1))
+        }
+    )]
+    #[case::increment_addition_decrement(
+        &[
+            Token::Increment,
+            Token::Integer(1),
+            Token::Addition,
+            Token::Decrement,
+            Token::Integer(2),
+        ],
+        Expression::Operation {
+            operator: Operator::Addition,
+            left: Box::new(Expression::UnaryOperation {
+                operator: UnaryOperator::Increment,
+                operand: Box::new(Expression::Integer(1))
+            }),
+            right: Box::new(Expression::UnaryOperation {
+                operator: UnaryOperator::Decrement,
+                operand: Box::new(Expression::Integer(2))
+            })
+        }
+    )]
+    #[case::left_increment(
+        &[
+            Token::Increment,
+            Token::Word("variable".to_string()),
+        ],
+        Expression::UnaryOperation {
+            operator: UnaryOperator::Increment,
+            operand: Box::new(Expression::Variable("variable".to_string()))
+        }
+    )]
+    #[case::left_decrement(
+        &[
+            Token::Decrement,
+            Token::Word("variable".to_string()),
+        ],
+        Expression::UnaryOperation {
+            operator: UnaryOperator::Decrement,
+            operand: Box::new(Expression::Variable("variable".to_string()))
+        }
+    )]
+    #[case::right_increment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Increment,
+        ],
+        Expression::UnaryOperation {
+            operator: UnaryOperator::Increment,
+            operand: Box::new(Expression::Variable("variable".to_string()))
+        }
+    )]
+    #[case::right_decrement(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Decrement,
+        ],
+        Expression::UnaryOperation {
+            operator: UnaryOperator::Decrement,
+            operand: Box::new(Expression::Variable("variable".to_string()))
+        }
     )]
     fn test_expression(#[case] tokens: &[Token], #[case] expected: Expression) {
         let mut tokens = tokens.iter().cloned().peekable();
@@ -1033,13 +1369,13 @@ mod tests {
         ],
         Expression::RelationalOperation {
             operator: RelationalOperator::Equal,
-            left: Box::new(Expression::MathOperation {
-                operator: MathOperator::Addition,
+            left: Box::new(Expression::Operation {
+                operator: Operator::Addition,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::Integer(2))
             }),
-            right: Box::new(Expression::MathOperation {
-                operator: MathOperator::Multiplication,
+            right: Box::new(Expression::Operation {
+                operator: Operator::Multiplication,
                 left: Box::new(Expression::Integer(3)),
                 right: Box::new(Expression::Integer(4))
             })
@@ -1158,8 +1494,8 @@ mod tests {
                 },
                 Statement::Expression(Expression::Assignment {
                     variable: "variable".to_string(),
-                    expression: Box::new(Expression::MathOperation {
-                        operator: MathOperator::Addition,
+                    expression: Box::new(Expression::Operation {
+                        operator: Operator::Addition,
                         left: Box::new(Expression::Variable("variable".to_string())),
                         right: Box::new(Expression::Integer(1234))
                     })
@@ -1211,8 +1547,8 @@ mod tests {
         ],
         Statement::Declaration {
             variable: "variable".to_string(),
-            expression: Some(Expression::MathOperation {
-                operator: MathOperator::Addition,
+            expression: Some(Expression::Operation {
+                operator: Operator::Addition,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::Integer(2))
             })
@@ -1249,8 +1585,8 @@ mod tests {
         ],
         Expression::Assignment {
             variable: "variable".to_string(),
-            expression: Box::new(Expression::MathOperation {
-                operator: MathOperator::Addition,
+            expression: Box::new(Expression::Operation {
+                operator: Operator::Addition,
                 left: Box::new(Expression::Integer(1)),
                 right: Box::new(Expression::Integer(2))
             })
@@ -1284,8 +1620,8 @@ mod tests {
         ],
         Expression::Assignment {
             variable: "variable".to_string(),
-            expression: Box::new(Expression::MathOperation {
-                operator: MathOperator::Addition,
+            expression: Box::new(Expression::Operation {
+                operator: Operator::Addition,
                 left: Box::new(Expression::Variable("variable".to_string())),
                 right: Box::new(Expression::Integer(1))
             })
@@ -1300,8 +1636,8 @@ mod tests {
         ],
         Expression::Assignment {
             variable: "variable".to_string(),
-            expression: Box::new(Expression::MathOperation {
-                operator: MathOperator::Addition,
+            expression: Box::new(Expression::Operation {
+                operator: Operator::Addition,
                 left: Box::new(Expression::Variable("variable".to_string())),
                 right: Box::new(Expression::UnaryOperation {
                     operator: UnaryOperator::Negation,
@@ -1319,8 +1655,8 @@ mod tests {
         ],
         Expression::Assignment {
             variable: "variable".to_string(),
-            expression: Box::new(Expression::MathOperation {
-                operator: MathOperator::Multiplication,
+            expression: Box::new(Expression::Operation {
+                operator: Operator::Multiplication,
                 left: Box::new(Expression::Variable("variable".to_string())),
                 right: Box::new(Expression::Integer(1))
             })
@@ -1335,8 +1671,72 @@ mod tests {
         ],
         Expression::Assignment {
             variable: "variable".to_string(),
-            expression: Box::new(Expression::MathOperation {
-                operator: MathOperator::Division,
+            expression: Box::new(Expression::Operation {
+                operator: Operator::Division,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::Integer(1))
+            })
+        }
+    )]
+    #[case::shift_left_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment(Assignment::ShiftLeftEqual),
+            Token::Integer(1),
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::Operation {
+                operator: Operator::ShiftLeft,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::Integer(1))
+            })
+        }
+    )]
+    #[case::shift_right_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment(Assignment::ShiftRightEqual),
+            Token::Integer(1),
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::Operation {
+                operator: Operator::ShiftRight,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::Integer(1))
+            })
+        }
+    )]
+    #[case::modulo_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment(Assignment::ModuloEqual),
+            Token::Integer(1),
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::Operation {
+                operator: Operator::Modulo,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::Integer(1))
+            })
+        }
+    )]
+    #[case::xor_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment(Assignment::XorEqual),
+            Token::Integer(1),
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::Operation {
+                operator: Operator::BitwiseXor,
                 left: Box::new(Expression::Variable("variable".to_string())),
                 right: Box::new(Expression::Integer(1))
             })

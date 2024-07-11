@@ -32,17 +32,29 @@ pub enum Token {
     GreaterThan,
     GreaterThanOrEqual,
     Assignment(Assignment),
+    ShiftLeft,
+    ShiftRight,
+    Modulo,
+    BitwiseXor,
+    BitwiseOr,
+    BitwiseAnd,
+    Increment,
+    Decrement,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Assignment {
-    Equal,         // =
-    PlusEqual,     // +=
-    MinusEqual,    // -=
-    MultiplyEqual, // *=
-    DivideEqual,   // /=
-    AndEqual,      // &=
-    OrEqual,       // |=
+    Equal,           // =
+    PlusEqual,       // +=
+    MinusEqual,      // -=
+    MultiplyEqual,   // *=
+    DivideEqual,     // /=
+    AndEqual,        // &=
+    OrEqual,         // |=
+    ShiftLeftEqual,  // <<=
+    ShiftRightEqual, // >>=
+    ModuloEqual,     // %=
+    XorEqual,        // ^=
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -103,6 +115,9 @@ where
                     if let Some('=') = self.input.peek() {
                         self.input.next();
                         Some(Token::Assignment(Assignment::MinusEqual))
+                    } else if let Some('-') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Decrement)
                     } else {
                         Some(Token::Negation)
                     }
@@ -111,6 +126,9 @@ where
                     if let Some('=') = self.input.peek() {
                         self.input.next();
                         Some(Token::Assignment(Assignment::PlusEqual))
+                    } else if let Some('+') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Increment)
                     } else {
                         Some(Token::Addition)
                     }
@@ -139,7 +157,7 @@ where
                         self.input.next();
                         Some(Token::Assignment(Assignment::AndEqual))
                     } else {
-                        None
+                        Some(Token::BitwiseAnd)
                     }
                 }
                 '|' => {
@@ -150,7 +168,7 @@ where
                         self.input.next();
                         Some(Token::Assignment(Assignment::OrEqual))
                     } else {
-                        None
+                        Some(Token::BitwiseOr)
                     }
                 }
                 '=' => {
@@ -165,6 +183,14 @@ where
                     if let Some('=') = self.input.peek() {
                         self.input.next();
                         Some(Token::LessThanOrEqual)
+                    } else if let Some('<') = self.input.peek() {
+                        self.input.next();
+                        if let Some('=') = self.input.peek() {
+                            self.input.next();
+                            Some(Token::Assignment(Assignment::ShiftLeftEqual))
+                        } else {
+                            Some(Token::ShiftLeft)
+                        }
                     } else {
                         Some(Token::LessThan)
                     }
@@ -173,8 +199,32 @@ where
                     if let Some('=') = self.input.peek() {
                         self.input.next();
                         Some(Token::GreaterThanOrEqual)
+                    } else if let Some('>') = self.input.peek() {
+                        self.input.next();
+                        if let Some('=') = self.input.peek() {
+                            self.input.next();
+                            Some(Token::Assignment(Assignment::ShiftRightEqual))
+                        } else {
+                            Some(Token::ShiftRight)
+                        }
                     } else {
                         Some(Token::GreaterThan)
+                    }
+                }
+                '%' => {
+                    if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Assignment(Assignment::ModuloEqual))
+                    } else {
+                        Some(Token::Modulo)
+                    }
+                }
+                '^' => {
+                    if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Assignment(Assignment::XorEqual))
+                    } else {
+                        Some(Token::BitwiseXor)
                     }
                 }
                 '0'..='9' => {
@@ -264,6 +314,18 @@ mod tests {
     #[case::divide_equal("/=", vec![Token::Assignment(Assignment::DivideEqual), Token::EndOfFile])]
     #[case::and_equal("&=", vec![Token::Assignment(Assignment::AndEqual), Token::EndOfFile])]
     #[case::or_equal("|=", vec![Token::Assignment(Assignment::OrEqual), Token::EndOfFile])]
+    #[case::shift_left_equal("<<=", vec![Token::Assignment(Assignment::ShiftLeftEqual), Token::EndOfFile])]
+    #[case::shift_right_equal(">>=", vec![Token::Assignment(Assignment::ShiftRightEqual), Token::EndOfFile])]
+    #[case::modulo_equal("%=", vec![Token::Assignment(Assignment::ModuloEqual), Token::EndOfFile])]
+    #[case::xor_equal("^=", vec![Token::Assignment(Assignment::XorEqual), Token::EndOfFile])]
+    #[case::shift_left("<<", vec![Token::ShiftLeft, Token::EndOfFile])]
+    #[case::shift_right(">>", vec![Token::ShiftRight, Token::EndOfFile])]
+    #[case::modulo("%", vec![Token::Modulo, Token::EndOfFile])]
+    #[case::xor("^", vec![Token::BitwiseXor, Token::EndOfFile])]
+    #[case::or("|", vec![Token::BitwiseOr, Token::EndOfFile])]
+    #[case::and("&", vec![Token::BitwiseAnd, Token::EndOfFile])]
+    #[case::increment("++", vec![Token::Increment, Token::EndOfFile])]
+    #[case::decrement("--", vec![Token::Decrement, Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
@@ -294,8 +356,7 @@ mod tests {
         Token::Integer(3),
         Token::EndOfFile
     ])]
-    #[case::negation("--3", vec![
-        Token::Negation,
+    #[case::negation("-3", vec![
         Token::Negation,
         Token::Integer(3),
         Token::EndOfFile

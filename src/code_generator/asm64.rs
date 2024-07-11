@@ -1,6 +1,6 @@
 use crate::code_generator::CodeGenerator;
 use crate::parser::{
-    Expression, Function, LogicalOperator, MathOperator, Program, RelationalOperator, Statement,
+    Expression, Function, LogicalOperator, Operator, Program, RelationalOperator, Statement,
     UnaryOperator,
 };
 use derive_more::{Display, Error};
@@ -217,7 +217,7 @@ fn generate_expression(
             let operator = generate_unary_operator(operator);
             Ok(operand.iter().chain(&operator).cloned().collect())
         }
-        Expression::MathOperation {
+        Expression::Operation {
             operator,
             left,
             right,
@@ -249,7 +249,12 @@ fn generate_expression(
             instructions.extend(generate_expression(*expression, variables)?);
             instructions.push(Instruction::Mov(
                 Register64::Rax.to_string(),
-                format!("-{}(%rbp)", variables.get(&variable).unwrap()),
+                format!(
+                    "-{}(%rbp)",
+                    variables
+                        .get(&variable)
+                        .ok_or(Asm64CodeGenerationError::VariableNotDeclared { variable })?
+                ),
             ));
             Ok(instructions)
         }
@@ -364,7 +369,7 @@ fn generate_logical_operator(
 }
 
 fn generate_math_operator(
-    operator: MathOperator,
+    operator: Operator,
     left: Expression,
     right: Expression,
     variables: &HashMap<String, u64>,
@@ -377,18 +382,18 @@ fn generate_math_operator(
     instructions.extend(right);
 
     match operator {
-        MathOperator::Addition => {
+        Operator::Addition => {
             instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
             instructions.push(Instruction::Add(
                 Register64::Rdi.to_string(),
                 Register64::Rax.to_string(),
             ));
         }
-        MathOperator::Multiplication => {
+        Operator::Multiplication => {
             instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
             instructions.push(Instruction::Mul(Register64::Rdi.to_string()))
         }
-        MathOperator::Division => {
+        Operator::Division => {
             instructions.push(Instruction::Mov(
                 Register64::Rax.to_string(),
                 Register64::Rdi.to_string(),
@@ -400,6 +405,12 @@ fn generate_math_operator(
             ));
             instructions.push(Instruction::Div(Register64::Rdi.to_string()));
         }
+        Operator::Modulo => todo!(),
+        Operator::BitwiseOr => todo!(),
+        Operator::BitwiseAnd => todo!(),
+        Operator::BitwiseXor => todo!(),
+        Operator::ShiftLeft => todo!(),
+        Operator::ShiftRight => todo!(),
     }
 
     Ok(instructions)
@@ -421,5 +432,7 @@ fn generate_unary_operator(operator: UnaryOperator) -> Vec<Instruction> {
                 Instruction::Sete(Register8::Al.to_string()),
             ]
         }
+        UnaryOperator::Increment => todo!(),
+        UnaryOperator::Decrement => todo!(),
     }
 }
