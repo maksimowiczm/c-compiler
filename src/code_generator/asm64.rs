@@ -138,6 +138,9 @@ fn generate_statement(statement: Statement, context: FunctionContext) -> Vec<Ins
                     .collect(),
             }
         }
+        Statement::Declaration { .. } => todo!(),
+        Statement::StatementList { .. } => todo!(),
+        Statement::Expression(_) => todo!(),
     }
 }
 
@@ -168,6 +171,8 @@ fn generate_expression(expression: Expression) -> Vec<Instruction> {
             left,
             right,
         } => generate_relational_operator(operator, *left, *right),
+        Expression::Assignment { .. } => todo!(),
+        Expression::Variable(_) => todo!(),
     }
 }
 

@@ -1,12 +1,12 @@
 use std::iter::Peekable;
+use std::str::FromStr;
 
 pub struct Lexer<TInput: Iterator<Item = char>> {
     input: Peekable<TInput>,
     end: bool,
 }
 
-#[derive(Debug, PartialEq)]
-#[cfg_attr(test, derive(Clone))]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token {
     EndOfFile,
     OpenBrace,
@@ -15,6 +15,7 @@ pub enum Token {
     CloseParenthesis,
     SemiColon,
     Word(String),
+    Keyword(Keyword),
     Integer(i32),
     Negation,
     LogicalNot,
@@ -30,6 +31,25 @@ pub enum Token {
     LessThanOrEqual,
     GreaterThan,
     GreaterThanOrEqual,
+    Assignment,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Keyword {
+    Return,
+    Int,
+}
+
+impl FromStr for Keyword {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "return" => Ok(Keyword::Return),
+            "int" => Ok(Keyword::Int),
+            _ => Err(()),
+        }
+    }
 }
 
 impl<TInput> Lexer<TInput>
@@ -93,7 +113,7 @@ where
                         self.input.next();
                         Some(Token::Equal)
                     } else {
-                        None
+                        Some(Token::Assignment)
                     }
                 }
                 '<' => {
@@ -140,7 +160,12 @@ where
                                 break;
                             }
                         }
-                        Some(Token::Word(word))
+
+                        if let Ok(keyword) = word.parse() {
+                            Some(Token::Keyword(keyword))
+                        } else {
+                            Some(Token::Word(word))
+                        }
                     } else {
                         None
                     }
@@ -187,6 +212,7 @@ mod tests {
     #[case::less_than_or_equal("<=", vec![Token::LessThanOrEqual, Token::EndOfFile])]
     #[case::greater_than(">", vec![Token::GreaterThan, Token::EndOfFile])]
     #[case::greater_than_or_equal(">=", vec![Token::GreaterThanOrEqual, Token::EndOfFile])]
+    #[case::assignment("=", vec![Token::Assignment, Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
@@ -237,6 +263,16 @@ mod tests {
         Token::EndOfFile
     ])]
     fn test_unary_operators(#[case] input: &str, #[case] expected: Vec<Token>) {
+        let lexer = Lexer::new(input.chars().peekable());
+        let tokens = lexer.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(tokens, expected);
+    }
+
+    #[rstest]
+    #[case::keyword_return("return", vec![Token::Keyword(Keyword::Return), Token::EndOfFile])]
+    #[case::keyword_int("int", vec![Token::Keyword(Keyword::Int), Token::EndOfFile])]
+    fn test_keywords(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
 

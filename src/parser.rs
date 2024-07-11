@@ -1,4 +1,4 @@
-use crate::lexer::Token;
+use crate::lexer::{Keyword, Token};
 use derive_more::{Display, Error};
 use std::iter::Peekable;
 
@@ -33,7 +33,15 @@ pub struct Function {
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum Statement {
-    Return { expression: Expression },
+    StatementList(Vec<Statement>),
+    Return {
+        expression: Expression,
+    },
+    Expression(Expression),
+    Declaration {
+        variable: String,
+        expression: Option<Expression>,
+    },
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -58,6 +66,11 @@ pub enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    Assignment {
+        variable: String,
+        expression: Box<Expression>,
+    },
+    Variable(String),
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -128,7 +141,7 @@ fn expect_token(
 }
 
 fn function(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Function, ParserError> {
-    expect_token(tokens, Token::Word("int".to_string()))?;
+    expect_token(tokens, Token::Keyword(Keyword::Int))?;
     let name = match tokens.next() {
         Some(Token::Word(name)) => Ok(name),
         _ => Err(ParserError::UnexpectedToken {
@@ -141,34 +154,115 @@ fn function(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Functi
     expect_token(tokens, Token::OpenParenthesis)?;
     expect_token(tokens, Token::CloseParenthesis)?;
     expect_token(tokens, Token::OpenBrace)?;
-    let body = Statement::parse(tokens)?;
+
+    let mut statements = vec![];
+    while let Some(token) = tokens.peek() {
+        if let Token::CloseBrace = token {
+            break;
+        }
+        statements.push(Statement::parse(tokens)?);
+    }
     expect_token(tokens, Token::CloseBrace)?;
+
+    let body = if statements.len() == 1 {
+        statements.remove(0)
+    } else {
+        Statement::StatementList(statements)
+    };
 
     Ok(Function { name, body })
 }
 
 impl Statement {
     fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
-        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+        let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
-        match token {
-            Token::Word(word) if word == "return" => {
+        match peek {
+            Token::Word(_) | Token::Integer(_) => {
                 let expression = Expression::parse(tokens)?;
                 expect_token(tokens, Token::SemiColon)?;
-                Ok(Statement::Return { expression })
+                return Ok(Statement::Expression(expression));
             }
+            Token::Keyword(_) => parse_keyword(tokens),
             _ => Err(ParserError::UnexpectedToken {
-                unexpected: token,
-                expected: vec![Token::Word("return".to_string())],
+                unexpected: peek.clone(),
+                expected: vec![Token::Word("<variable_name>".to_string())],
                 near_tokens: tokens.take(6).collect(),
             }),
         }
     }
 }
 
+fn parse_keyword(
+    tokens: &mut Peekable<impl Iterator<Item = Token>>,
+) -> Result<Statement, ParserError> {
+    let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+    match token {
+        Token::Keyword(Keyword::Return) => {
+            let expression = Expression::parse(tokens)?;
+            expect_token(tokens, Token::SemiColon)?;
+
+            Ok(Statement::Return { expression })
+        }
+        Token::Keyword(Keyword::Int) => {
+            let declaration = declaration(tokens)?;
+            Ok(declaration)
+        }
+        _ => Err(ParserError::UnexpectedToken {
+            unexpected: token,
+            expected: vec![
+                Token::Keyword(Keyword::Int),
+                Token::Keyword(Keyword::Return),
+            ],
+            near_tokens: tokens.take(6).collect(),
+        }),
+    }
+}
+
+fn declaration(
+    tokens: &mut Peekable<impl Iterator<Item = Token>>,
+) -> Result<Statement, ParserError> {
+    let variable = match tokens.next() {
+        Some(Token::Word(variable)) => Ok(variable),
+        Some(token) => Err(ParserError::UnexpectedToken {
+            unexpected: token,
+            expected: vec![Token::Word("<variable_name>".to_string())],
+            near_tokens: tokens.take(6).collect(),
+        }),
+        _ => Err(ParserError::UnexpectedEndOfInput),
+    }?;
+
+    let expression = match tokens.peek() {
+        Some(Token::Assignment) => {
+            tokens.next();
+            Some(Expression::parse(tokens)?)
+        }
+        _ => None,
+    };
+
+    expect_token(tokens, Token::SemiColon)?;
+
+    Ok(Statement::Declaration {
+        variable,
+        expression,
+    })
+}
+
 impl Expression {
     fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
-        Expression::logical_or(tokens)
+        match Expression::logical_or(tokens)? {
+            // <id> "=" <exp>
+            Expression::Variable(id) if matches!(tokens.peek(), Some(Token::Assignment)) => {
+                tokens.next();
+                let right = Expression::parse(tokens)?;
+                Ok(Expression::Assignment {
+                    variable: id.clone(),
+                    expression: Box::new(right),
+                })
+            }
+            // logical_or
+            expression => Ok(expression),
+        }
     }
 
     fn logical_or(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
@@ -362,6 +456,7 @@ impl Expression {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         match token {
+            Token::Word(id) => Ok(Expression::Variable(id)),
             Token::Integer(value) => Ok(Expression::Integer(value as u64)),
             Token::OpenParenthesis => {
                 let node = Expression::parse(tokens)?;
@@ -406,8 +501,16 @@ mod tests {
 
     #[rstest]
     #[case::return_integer(
-        &[Token::Word("return".to_string()), Token::Integer(1234), Token::SemiColon],
+        &[Token::Keyword(Keyword::Return), Token::Integer(1234), Token::SemiColon],
         Statement::Return { expression: Expression::Integer(1234) }
+    )]
+    #[case::expression(
+        &[Token::Integer(1), Token::SemiColon],
+        Statement::Expression(Expression::Integer(1))
+    )]
+    #[case::declaration(
+        &[Token::Keyword(Keyword::Int), Token::Word("variable".to_string()), Token::SemiColon],
+        Statement::Declaration { variable: "variable".to_string(), expression: None }
     )]
     fn test_statement(#[case] tokens: &[Token], #[case] expected: Statement) {
         let mut tokens = tokens.iter().cloned().peekable();
@@ -791,6 +894,10 @@ mod tests {
             right: Box::new(Expression::Integer(1))
         }
     )]
+    #[case::variable(
+        &[Token::Word("variable".to_string())],
+        Expression::Variable("variable".to_string())
+    )]
     fn test_expression(#[case] tokens: &[Token], #[case] expected: Expression) {
         let mut tokens = tokens.iter().cloned().peekable();
         let expression = Expression::parse(&mut tokens).unwrap();
@@ -943,14 +1050,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(
+    #[case::return_integer(
         &[
-            Token::Word("int".to_string()),
+            Token::Keyword(Keyword::Int),
             Token::Word("main".to_string()),
             Token::OpenParenthesis,
             Token::CloseParenthesis,
             Token::OpenBrace,
-            Token::Word("return".to_string()),
+            Token::Keyword(Keyword::Return),
             Token::Integer(1234),
             Token::SemiColon,
             Token::CloseBrace
@@ -962,10 +1069,157 @@ mod tests {
             }
         }
     )]
+    #[case::multiple_statements(
+        &[
+            Token::Keyword(Keyword::Int),
+            Token::Word("main".to_string()),
+            Token::OpenParenthesis,
+            Token::CloseParenthesis,
+            Token::OpenBrace,
+            Token::Keyword(Keyword::Int),
+            Token::Word("variable".to_string()),
+            Token::SemiColon,
+            Token::Word("variable".to_string()),
+            Token::Assignment,
+            Token::Word("variable".to_string()),
+            Token::Addition,
+            Token::Integer(1234),
+            Token::SemiColon,
+            Token::Keyword(Keyword::Return),
+            Token::Integer(1234),
+            Token::SemiColon,
+            Token::CloseBrace
+        ],
+        Function {
+            name: "main".to_string(),
+            body: Statement::StatementList(vec![
+                Statement::Declaration {
+                    variable: "variable".to_string(),
+                    expression: None
+                },
+                Statement::Expression(Expression::Assignment {
+                    variable: "variable".to_string(),
+                    expression: Box::new(Expression::MathOperation {
+                        operator: MathOperator::Addition,
+                        left: Box::new(Expression::Variable("variable".to_string())),
+                        right: Box::new(Expression::Integer(1234))
+                    })
+                }),
+                Statement::Return {
+                    expression: Expression::Integer(1234)
+                }
+            ])
+        }
+    )]
     fn test_function(#[case] tokens: &[Token], #[case] expected: Function) {
         let mut tokens = tokens.iter().cloned().peekable();
         let function = function(&mut tokens).unwrap();
 
         assert_eq!(function, expected);
+    }
+
+    #[rstest]
+    #[case::no_expression(
+        &[
+            Token::Word("variable".to_string()),
+            Token::SemiColon
+        ],
+        Statement::Declaration {
+            variable: "variable".to_string(),
+            expression: None
+        }
+    )]
+    #[case::with_integer(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment,
+            Token::Integer(1),
+            Token::SemiColon
+        ],
+        Statement::Declaration {
+            variable: "variable".to_string(),
+            expression: Some(Expression::Integer(1))
+        }
+    )]
+    #[case::with_expression(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment,
+            Token::Integer(1),
+            Token::Addition,
+            Token::Integer(2),
+            Token::SemiColon
+        ],
+        Statement::Declaration {
+            variable: "variable".to_string(),
+            expression: Some(Expression::MathOperation {
+                operator: MathOperator::Addition,
+                left: Box::new(Expression::Integer(1)),
+                right: Box::new(Expression::Integer(2))
+            })
+        }
+    )]
+    fn test_declaration(#[case] tokens: &[Token], #[case] expected: Statement) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let declaration = declaration(&mut tokens).unwrap();
+
+        assert_eq!(declaration, expected);
+    }
+
+    #[rstest]
+    #[case::integer_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment,
+            Token::Integer(1),
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::Integer(1))
+        }
+    )]
+    #[case::expression_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment,
+            Token::Integer(1),
+            Token::Addition,
+            Token::Integer(2),
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::MathOperation {
+                operator: MathOperator::Addition,
+                left: Box::new(Expression::Integer(1)),
+                right: Box::new(Expression::Integer(2))
+            })
+        }
+    )]
+    #[case::assigment_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment,
+            Token::OpenParenthesis,
+            Token::Word("other".to_string()),
+            Token::Assignment,
+            Token::Integer(1),
+            Token::CloseParenthesis,
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::Assignment {
+                variable: "other".to_string(),
+                expression: Box::new(Expression::Integer(1))
+            })
+        }
+    )]
+    fn test_assignment(#[case] tokens: &[Token], #[case] expected: Expression) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let assignment = Expression::parse(&mut tokens).unwrap();
+
+        assert_eq!(assignment, expected);
     }
 }
