@@ -1,4 +1,4 @@
-use crate::lexer::{Keyword, Token};
+use crate::lexer::{Assignment, Keyword, Token};
 use derive_more::{Display, Error};
 use std::iter::Peekable;
 
@@ -233,7 +233,7 @@ fn declaration(
     }?;
 
     let expression = match tokens.peek() {
-        Some(Token::Assignment) => {
+        Some(Token::Assignment(Assignment::Equal)) => {
             tokens.next();
             Some(Expression::parse(tokens)?)
         }
@@ -252,13 +252,72 @@ impl Expression {
     fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
         match Expression::logical_or(tokens)? {
             // <id> "=" <exp>
-            Expression::Variable(id) if matches!(tokens.peek(), Some(Token::Assignment)) => {
-                tokens.next();
-                let right = Expression::parse(tokens)?;
-                Ok(Expression::Assignment {
-                    variable: id.clone(),
-                    expression: Box::new(right),
-                })
+            Expression::Variable(id) => {
+                if !matches!(tokens.peek(), Some(Token::Assignment(_))) {
+                    return Ok(Expression::Variable(id));
+                }
+                return if let Some(Token::Assignment(assignment)) = tokens.next() {
+                    let right = Box::new(Expression::parse(tokens)?);
+                    match assignment {
+                        Assignment::Equal => Ok(Expression::Assignment {
+                            variable: id,
+                            expression: right,
+                        }),
+                        Assignment::PlusEqual => Ok(Expression::Assignment {
+                            variable: id.clone(),
+                            expression: Box::new(Expression::MathOperation {
+                                operator: MathOperator::Addition,
+                                left: Box::new(Expression::Variable(id)),
+                                right,
+                            }),
+                        }),
+                        Assignment::MinusEqual => Ok(Expression::Assignment {
+                            variable: id.clone(),
+                            expression: Box::new(Expression::MathOperation {
+                                operator: MathOperator::Addition,
+                                left: Box::new(Expression::Variable(id)),
+                                right: Box::new(Expression::UnaryOperation {
+                                    operator: UnaryOperator::Negation,
+                                    operand: right,
+                                }),
+                            }),
+                        }),
+                        Assignment::MultiplyEqual => Ok(Expression::Assignment {
+                            variable: id.clone(),
+                            expression: Box::new(Expression::MathOperation {
+                                operator: MathOperator::Multiplication,
+                                left: Box::new(Expression::Variable(id)),
+                                right,
+                            }),
+                        }),
+                        Assignment::DivideEqual => Ok(Expression::Assignment {
+                            variable: id.clone(),
+                            expression: Box::new(Expression::MathOperation {
+                                operator: MathOperator::Division,
+                                left: Box::new(Expression::Variable(id)),
+                                right,
+                            }),
+                        }),
+                        Assignment::AndEqual => Ok(Expression::Assignment {
+                            variable: id.clone(),
+                            expression: Box::new(Expression::LogicalOperation {
+                                operator: LogicalOperator::And,
+                                left: Box::new(Expression::Variable(id)),
+                                right,
+                            }),
+                        }),
+                        Assignment::OrEqual => Ok(Expression::Assignment {
+                            variable: id.clone(),
+                            expression: Box::new(Expression::LogicalOperation {
+                                operator: LogicalOperator::Or,
+                                left: Box::new(Expression::Variable(id)),
+                                right,
+                            }),
+                        }),
+                    }
+                } else {
+                    unreachable!()
+                };
             }
             // logical_or
             expression => Ok(expression),
@@ -1080,7 +1139,7 @@ mod tests {
             Token::Word("variable".to_string()),
             Token::SemiColon,
             Token::Word("variable".to_string()),
-            Token::Assignment,
+            Token::Assignment(Assignment::Equal),
             Token::Word("variable".to_string()),
             Token::Addition,
             Token::Integer(1234),
@@ -1132,7 +1191,7 @@ mod tests {
     #[case::with_integer(
         &[
             Token::Word("variable".to_string()),
-            Token::Assignment,
+            Token::Assignment(Assignment::Equal),
             Token::Integer(1),
             Token::SemiColon
         ],
@@ -1144,7 +1203,7 @@ mod tests {
     #[case::with_expression(
         &[
             Token::Word("variable".to_string()),
-            Token::Assignment,
+            Token::Assignment(Assignment::Equal),
             Token::Integer(1),
             Token::Addition,
             Token::Integer(2),
@@ -1170,7 +1229,7 @@ mod tests {
     #[case::integer_assigment(
         &[
             Token::Word("variable".to_string()),
-            Token::Assignment,
+            Token::Assignment(Assignment::Equal),
             Token::Integer(1),
             Token::SemiColon
         ],
@@ -1182,7 +1241,7 @@ mod tests {
     #[case::expression_assigment(
         &[
             Token::Word("variable".to_string()),
-            Token::Assignment,
+            Token::Assignment(Assignment::Equal),
             Token::Integer(1),
             Token::Addition,
             Token::Integer(2),
@@ -1200,10 +1259,10 @@ mod tests {
     #[case::assigment_assigment(
         &[
             Token::Word("variable".to_string()),
-            Token::Assignment,
+            Token::Assignment(Assignment::Equal),
             Token::OpenParenthesis,
             Token::Word("other".to_string()),
-            Token::Assignment,
+            Token::Assignment(Assignment::Equal),
             Token::Integer(1),
             Token::CloseParenthesis,
             Token::SemiColon
@@ -1213,6 +1272,73 @@ mod tests {
             expression: Box::new(Expression::Assignment {
                 variable: "other".to_string(),
                 expression: Box::new(Expression::Integer(1))
+            })
+        }
+    )]
+    #[case::plus_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment(Assignment::PlusEqual),
+            Token::Integer(1),
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::MathOperation {
+                operator: MathOperator::Addition,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::Integer(1))
+            })
+        }
+    )]
+    #[case::minus_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment(Assignment::MinusEqual),
+            Token::Integer(1),
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::MathOperation {
+                operator: MathOperator::Addition,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::UnaryOperation {
+                    operator: UnaryOperator::Negation,
+                    operand: Box::new(Expression::Integer(1))
+                })
+            })
+        }
+    )]
+    #[case::multiplication_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment(Assignment::MultiplyEqual),
+            Token::Integer(1),
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::MathOperation {
+                operator: MathOperator::Multiplication,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::Integer(1))
+            })
+        }
+    )]
+    #[case::division_assigment(
+        &[
+            Token::Word("variable".to_string()),
+            Token::Assignment(Assignment::DivideEqual),
+            Token::Integer(1),
+            Token::SemiColon
+        ],
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::MathOperation {
+                operator: MathOperator::Division,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::Integer(1))
             })
         }
     )]

@@ -31,7 +31,18 @@ pub enum Token {
     LessThanOrEqual,
     GreaterThan,
     GreaterThanOrEqual,
-    Assignment,
+    Assignment(Assignment),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Assignment {
+    Equal,         // =
+    PlusEqual,     // +=
+    MinusEqual,    // -=
+    MultiplyEqual, // *=
+    DivideEqual,   // /=
+    AndEqual,      // &=
+    OrEqual,       // |=
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -88,14 +99,45 @@ where
                     }
                 }
                 '~' => Some(Token::BitwiseNot),
-                '-' => Some(Token::Negation),
-                '+' => Some(Token::Addition),
-                '*' => Some(Token::Multiplication),
-                '/' => Some(Token::Division),
+                '-' => {
+                    if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Assignment(Assignment::MinusEqual))
+                    } else {
+                        Some(Token::Negation)
+                    }
+                }
+                '+' => {
+                    if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Assignment(Assignment::PlusEqual))
+                    } else {
+                        Some(Token::Addition)
+                    }
+                }
+                '*' => {
+                    if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Assignment(Assignment::MultiplyEqual))
+                    } else {
+                        Some(Token::Multiplication)
+                    }
+                }
+                '/' => {
+                    if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Assignment(Assignment::DivideEqual))
+                    } else {
+                        Some(Token::Division)
+                    }
+                }
                 '&' => {
                     if let Some('&') = self.input.peek() {
                         self.input.next();
                         Some(Token::LogicalAnd)
+                    } else if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Assignment(Assignment::AndEqual))
                     } else {
                         None
                     }
@@ -104,6 +146,9 @@ where
                     if let Some('|') = self.input.peek() {
                         self.input.next();
                         Some(Token::LogicalOr)
+                    } else if let Some('=') = self.input.peek() {
+                        self.input.next();
+                        Some(Token::Assignment(Assignment::OrEqual))
                     } else {
                         None
                     }
@@ -113,7 +158,7 @@ where
                         self.input.next();
                         Some(Token::Equal)
                     } else {
-                        Some(Token::Assignment)
+                        Some(Token::Assignment(Assignment::Equal))
                     }
                 }
                 '<' => {
@@ -212,7 +257,13 @@ mod tests {
     #[case::less_than_or_equal("<=", vec![Token::LessThanOrEqual, Token::EndOfFile])]
     #[case::greater_than(">", vec![Token::GreaterThan, Token::EndOfFile])]
     #[case::greater_than_or_equal(">=", vec![Token::GreaterThanOrEqual, Token::EndOfFile])]
-    #[case::assignment("=", vec![Token::Assignment, Token::EndOfFile])]
+    #[case::assignment("=", vec![Token::Assignment(Assignment::Equal), Token::EndOfFile])]
+    #[case::plus_equal("+=", vec![Token::Assignment(Assignment::PlusEqual), Token::EndOfFile])]
+    #[case::minus_equal("-=", vec![Token::Assignment(Assignment::MinusEqual), Token::EndOfFile])]
+    #[case::multiply_equal("*=", vec![Token::Assignment(Assignment::MultiplyEqual), Token::EndOfFile])]
+    #[case::divide_equal("/=", vec![Token::Assignment(Assignment::DivideEqual), Token::EndOfFile])]
+    #[case::and_equal("&=", vec![Token::Assignment(Assignment::AndEqual), Token::EndOfFile])]
+    #[case::or_equal("|=", vec![Token::Assignment(Assignment::OrEqual), Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
