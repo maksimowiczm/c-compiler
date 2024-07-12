@@ -90,6 +90,18 @@ enum Instruction {
     Jne(String),
     #[display("jmp {}", _0)]
     Jmp(String),
+    #[display("or {}, {}", _0, _1)]
+    Or(String, String),
+    #[display("and {}, {}", _0, _1)]
+    And(String, String),
+    #[display("xor {}, {}", _0, _1)]
+    Xor(String, String),
+    #[display("shl {}, {}", _0, _1)]
+    Shl(String, String),
+    #[display("shr {}, {}", _0, _1)]
+    Shr(String, String),
+    #[display("// {}", _0)]
+    Comment(String),
 }
 
 #[derive(Default)]
@@ -119,12 +131,16 @@ enum Register64 {
     Rbp,
     #[display("%rsp")]
     Rsp,
+    #[display("%rcx")]
+    Rcx,
 }
 
 #[derive(Display, Clone, Copy)]
 enum Register8 {
     #[display("%al")]
     Al,
+    #[display("%cl")]
+    Cl,
 }
 
 fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
@@ -143,6 +159,7 @@ fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGe
     instructions.extend(generate_statement(body, &mut context)?);
 
     // brute force return 0 for main, c standard, I will fix it later :) clueless
+    instructions.push(Instruction::Comment("auto generated exit".to_string()));
     instructions.extend(context.epilogue());
     instructions.push(Instruction::Mov(
         "$0".to_string(),
@@ -405,12 +422,65 @@ fn generate_math_operator(
             ));
             instructions.push(Instruction::Div(Register64::Rdi.to_string()));
         }
-        Operator::Modulo => todo!(),
-        Operator::BitwiseOr => todo!(),
-        Operator::BitwiseAnd => todo!(),
-        Operator::BitwiseXor => todo!(),
-        Operator::ShiftLeft => todo!(),
-        Operator::ShiftRight => todo!(),
+        Operator::Modulo => {
+            instructions.push(Instruction::Mov(
+                Register64::Rax.to_string(),
+                Register64::Rdi.to_string(),
+            ));
+            instructions.push(Instruction::Pop(Register64::Rax.to_string()));
+            instructions.push(Instruction::Mov(
+                "$0".to_string(),
+                Register64::Rdx.to_string(),
+            ));
+            instructions.push(Instruction::Div(Register64::Rdi.to_string()));
+            instructions.push(Instruction::Mov(
+                Register64::Rdx.to_string(),
+                Register64::Rax.to_string(),
+            ));
+        }
+        Operator::BitwiseOr => {
+            instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
+            instructions.push(Instruction::Or(
+                Register64::Rdi.to_string(),
+                Register64::Rax.to_string(),
+            ));
+        }
+        Operator::BitwiseAnd => {
+            instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
+            instructions.push(Instruction::And(
+                Register64::Rdi.to_string(),
+                Register64::Rax.to_string(),
+            ));
+        }
+        Operator::BitwiseXor => {
+            instructions.push(Instruction::Pop(Register64::Rdi.to_string()));
+            instructions.push(Instruction::Xor(
+                Register64::Rdi.to_string(),
+                Register64::Rax.to_string(),
+            ));
+        }
+        Operator::ShiftLeft => {
+            instructions.push(Instruction::Mov(
+                Register64::Rax.to_string(),
+                Register64::Rcx.to_string(),
+            ));
+            instructions.push(Instruction::Pop(Register64::Rax.to_string()));
+            instructions.push(Instruction::Shl(
+                Register8::Cl.to_string(),
+                Register64::Rax.to_string(),
+            ));
+        }
+        Operator::ShiftRight => {
+            instructions.push(Instruction::Mov(
+                Register64::Rax.to_string(),
+                Register64::Rcx.to_string(),
+            ));
+            instructions.push(Instruction::Pop(Register64::Rax.to_string()));
+            instructions.push(Instruction::Shr(
+                Register8::Cl.to_string(),
+                Register64::Rax.to_string(),
+            ));
+        }
     }
 
     Ok(instructions)
@@ -432,7 +502,17 @@ fn generate_unary_operator(operator: UnaryOperator) -> Vec<Instruction> {
                 Instruction::Sete(Register8::Al.to_string()),
             ]
         }
-        UnaryOperator::Increment => todo!(),
-        UnaryOperator::Decrement => todo!(),
+        UnaryOperator::Increment => {
+            vec![Instruction::Add(
+                "$1".to_string(),
+                Register64::Rax.to_string(),
+            )]
+        }
+        UnaryOperator::Decrement => {
+            vec![Instruction::Add(
+                "$-1".to_string(),
+                Register64::Rax.to_string(),
+            )]
+        }
     }
 }
