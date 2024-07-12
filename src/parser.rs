@@ -28,19 +28,31 @@ pub struct Program {
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Function {
     pub(crate) name: String,
-    pub(crate) body: Statement,
+    pub(crate) body: Vec<Block>,
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub enum Block {
+    Statement(Statement),
+    Declaration(Declaration),
+}
+
+#[cfg_attr(test, derive(Debug, PartialEq))]
+pub struct Declaration {
+    pub(crate) variable: String,
+    pub(crate) expression: Option<Expression>,
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum Statement {
-    StatementList(Vec<Statement>),
     Return {
         expression: Expression,
     },
     Expression(Expression),
-    Declaration {
-        variable: String,
-        expression: Option<Expression>,
+    Conditional {
+        condition: Expression,
+        then: Box<Statement>,
+        otherwise: Option<Box<Statement>>,
     },
 }
 
@@ -71,6 +83,11 @@ pub enum Expression {
         expression: Box<Expression>,
     },
     Variable(String),
+    Ternary {
+        condition: Box<Expression>,
+        then: Box<Expression>,
+        otherwise: Box<Expression>,
+    },
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -163,22 +180,33 @@ fn function(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Functi
     expect_token(tokens, Token::CloseParenthesis)?;
     expect_token(tokens, Token::OpenBrace)?;
 
-    let mut statements = vec![];
+    let mut blocks = vec![];
     while let Some(token) = tokens.peek() {
         if let Token::CloseBrace = token {
             break;
         }
-        statements.push(Statement::parse(tokens)?);
+        blocks.push(Block::parse(tokens)?);
     }
     expect_token(tokens, Token::CloseBrace)?;
 
-    let body = if statements.len() == 1 {
-        statements.remove(0)
-    } else {
-        Statement::StatementList(statements)
-    };
+    Ok(Function { name, body: blocks })
+}
 
-    Ok(Function { name, body })
+impl Block {
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        match peek {
+            Token::Keyword(Keyword::Int) => {
+                let declaration = Declaration::parse(tokens)?;
+                Ok(Block::Declaration(declaration))
+            }
+            _ => {
+                let statement = Statement::parse(tokens)?;
+                Ok(Block::Statement(statement))
+            }
+        }
+    }
 }
 
 impl Statement {
@@ -197,7 +225,32 @@ impl Statement {
                 expect_token(tokens, Token::SemiColon)?;
                 return Ok(Statement::Expression(expression));
             }
-            Token::Keyword(_) => parse_keyword(tokens),
+            Token::Keyword(Keyword::Return) => {
+                expect_token(tokens, Token::Keyword(Keyword::Return))?;
+                let expression = Expression::parse(tokens)?;
+                expect_token(tokens, Token::SemiColon)?;
+
+                Ok(Statement::Return { expression })
+            }
+            Token::Keyword(Keyword::If) => {
+                expect_token(tokens, Token::Keyword(Keyword::If))?;
+                expect_token(tokens, Token::OpenParenthesis)?;
+                let condition = Expression::parse(tokens)?;
+                expect_token(tokens, Token::CloseParenthesis)?;
+                let then = Box::new(Statement::parse(tokens)?);
+                let otherwise = if let Some(Token::Keyword(Keyword::Else)) = tokens.peek() {
+                    tokens.next();
+                    Some(Box::new(Statement::parse(tokens)?))
+                } else {
+                    None
+                };
+
+                Ok(Statement::Conditional {
+                    condition,
+                    then,
+                    otherwise,
+                })
+            }
             _ => Err(ParserError::UnexpectedToken {
                 unexpected: peek.clone(),
                 expected: vec![Token::Word("<variable_name>".to_string())],
@@ -207,64 +260,40 @@ impl Statement {
     }
 }
 
-fn parse_keyword(
-    tokens: &mut Peekable<impl Iterator<Item = Token>>,
-) -> Result<Statement, ParserError> {
-    let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
-    match token {
-        Token::Keyword(Keyword::Return) => {
-            let expression = Expression::parse(tokens)?;
-            expect_token(tokens, Token::SemiColon)?;
+impl Declaration {
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        expect_token(tokens, Token::Keyword(Keyword::Int))?;
 
-            Ok(Statement::Return { expression })
-        }
-        Token::Keyword(Keyword::Int) => {
-            let declaration = declaration(tokens)?;
-            Ok(declaration)
-        }
-        _ => Err(ParserError::UnexpectedToken {
-            unexpected: token,
-            expected: vec![
-                Token::Keyword(Keyword::Int),
-                Token::Keyword(Keyword::Return),
-            ],
-            near_tokens: tokens.take(6).collect(),
-        }),
+        let variable = match tokens.next() {
+            Some(Token::Word(variable)) => Ok(variable),
+            Some(token) => Err(ParserError::UnexpectedToken {
+                unexpected: token,
+                expected: vec![Token::Word("<variable_name>".to_string())],
+                near_tokens: tokens.take(6).collect(),
+            }),
+            _ => Err(ParserError::UnexpectedEndOfInput),
+        }?;
+
+        let expression = match tokens.peek() {
+            Some(Token::Assignment(Assignment::Equal)) => {
+                tokens.next();
+                Some(Expression::parse(tokens)?)
+            }
+            _ => None,
+        };
+
+        expect_token(tokens, Token::SemiColon)?;
+
+        Ok(Declaration {
+            variable,
+            expression,
+        })
     }
-}
-
-fn declaration(
-    tokens: &mut Peekable<impl Iterator<Item = Token>>,
-) -> Result<Statement, ParserError> {
-    let variable = match tokens.next() {
-        Some(Token::Word(variable)) => Ok(variable),
-        Some(token) => Err(ParserError::UnexpectedToken {
-            unexpected: token,
-            expected: vec![Token::Word("<variable_name>".to_string())],
-            near_tokens: tokens.take(6).collect(),
-        }),
-        _ => Err(ParserError::UnexpectedEndOfInput),
-    }?;
-
-    let expression = match tokens.peek() {
-        Some(Token::Assignment(Assignment::Equal)) => {
-            tokens.next();
-            Some(Expression::parse(tokens)?)
-        }
-        _ => None,
-    };
-
-    expect_token(tokens, Token::SemiColon)?;
-
-    Ok(Statement::Declaration {
-        variable,
-        expression,
-    })
 }
 
 impl Expression {
     fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
-        match Expression::logical_or(tokens)? {
+        match Expression::ternary(tokens)? {
             // <id> <assignment> <exp>
             Expression::Variable(id) => {
                 if !matches!(tokens.peek(), Some(Token::Assignment(_))) {
@@ -367,6 +396,25 @@ impl Expression {
             }
             // logical_or
             expression => Ok(expression),
+        }
+    }
+
+    fn ternary(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError> {
+        let condition = Expression::logical_or(tokens)?;
+
+        if let Some(Token::QuestionMark) = tokens.peek() {
+            tokens.next();
+            let then = Box::new(Expression::parse(tokens)?);
+            expect_token(tokens, Token::Colon)?;
+            let otherwise = Box::new(Expression::parse(tokens)?);
+
+            Ok(Expression::Ternary {
+                condition: Box::new(condition),
+                then,
+                otherwise,
+            })
+        } else {
+            Ok(condition)
         }
     }
 
@@ -751,15 +799,23 @@ mod tests {
         &[Token::Integer(1), Token::SemiColon],
         Statement::Expression(Expression::Integer(1))
     )]
-    #[case::declaration(
-        &[Token::Keyword(Keyword::Int), Token::Word("variable".to_string()), Token::SemiColon],
-        Statement::Declaration { variable: "variable".to_string(), expression: None }
-    )]
     fn test_statement(#[case] tokens: &[Token], #[case] expected: Statement) {
         let mut tokens = tokens.iter().cloned().peekable();
         let statement = Statement::parse(&mut tokens).unwrap();
 
         assert_eq!(statement, expected);
+    }
+
+    #[rstest]
+    #[case::declaration(
+        &[Token::Keyword(Keyword::Int), Token::Word("variable".to_string()), Token::SemiColon],
+        Block::Declaration(Declaration { variable: "variable".to_string(), expression: None })
+    )]
+    fn test_block(#[case] tokens: &[Token], #[case] expected: Block) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let block = Block::parse(&mut tokens).unwrap();
+
+        assert_eq!(block, expected);
     }
 
     #[rstest]
@@ -1293,6 +1349,20 @@ mod tests {
             operand: Box::new(Expression::Variable("variable".to_string()))
         }
     )]
+    #[case::ternary(
+        &[
+            Token::Integer(1),
+            Token::QuestionMark,
+            Token::Integer(2),
+            Token::Colon,
+            Token::Integer(3),
+        ],
+        Expression::Ternary {
+            condition: Box::new(Expression::Integer(1)),
+            then: Box::new(Expression::Integer(2)),
+            otherwise: Box::new(Expression::Integer(3))
+        }
+    )]
     fn test_expression(#[case] tokens: &[Token], #[case] expected: Expression) {
         let mut tokens = tokens.iter().cloned().peekable();
         let expression = Expression::parse(&mut tokens).unwrap();
@@ -1459,9 +1529,9 @@ mod tests {
         ],
         Function {
             name: "main".to_string(),
-            body: Statement::Return {
-                expression: Expression::Integer(1234)
-            }
+            body: vec![
+                Block::Statement(Statement::Return { expression: Expression::Integer(1234) })
+            ]
         }
     )]
     #[case::multiple_statements(
@@ -1487,23 +1557,18 @@ mod tests {
         ],
         Function {
             name: "main".to_string(),
-            body: Statement::StatementList(vec![
-                Statement::Declaration {
-                    variable: "variable".to_string(),
-                    expression: None
-                },
-                Statement::Expression(Expression::Assignment {
+            body: vec![
+                Block::Declaration(Declaration { variable: "variable".to_string(), expression: None }),
+                Block::Statement(Statement::Expression(Expression::Assignment {
                     variable: "variable".to_string(),
                     expression: Box::new(Expression::Operation {
                         operator: Operator::Addition,
                         left: Box::new(Expression::Variable("variable".to_string())),
                         right: Box::new(Expression::Integer(1234))
                     })
-                }),
-                Statement::Return {
-                    expression: Expression::Integer(1234)
-                }
-            ])
+                })),
+                Block::Statement(Statement::Return { expression: Expression::Integer(1234) })
+            ]
         }
     )]
     fn test_function(#[case] tokens: &[Token], #[case] expected: Function) {
@@ -1516,28 +1581,31 @@ mod tests {
     #[rstest]
     #[case::no_expression(
         &[
+            Token::Keyword(Keyword::Int),
             Token::Word("variable".to_string()),
             Token::SemiColon
         ],
-        Statement::Declaration {
+        Declaration {
             variable: "variable".to_string(),
             expression: None
         }
     )]
     #[case::with_integer(
         &[
+            Token::Keyword(Keyword::Int),
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::Equal),
             Token::Integer(1),
             Token::SemiColon
         ],
-        Statement::Declaration {
+        Declaration {
             variable: "variable".to_string(),
             expression: Some(Expression::Integer(1))
         }
     )]
     #[case::with_expression(
         &[
+            Token::Keyword(Keyword::Int),
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::Equal),
             Token::Integer(1),
@@ -1545,7 +1613,7 @@ mod tests {
             Token::Integer(2),
             Token::SemiColon
         ],
-        Statement::Declaration {
+        Declaration {
             variable: "variable".to_string(),
             expression: Some(Expression::Operation {
                 operator: Operator::Addition,
@@ -1554,9 +1622,9 @@ mod tests {
             })
         }
     )]
-    fn test_declaration(#[case] tokens: &[Token], #[case] expected: Statement) {
+    fn test_declaration(#[case] tokens: &[Token], #[case] expected: Declaration) {
         let mut tokens = tokens.iter().cloned().peekable();
-        let declaration = declaration(&mut tokens).unwrap();
+        let declaration = Declaration::parse(&mut tokens).unwrap();
 
         assert_eq!(declaration, expected);
     }
@@ -1747,5 +1815,79 @@ mod tests {
         let assignment = Expression::parse(&mut tokens).unwrap();
 
         assert_eq!(assignment, expected);
+    }
+
+    #[rstest]
+    #[case::if_statement(
+        &[
+            Token::Keyword(Keyword::If),
+            Token::OpenParenthesis,
+            Token::Integer(1),
+            Token::CloseParenthesis,
+            Token::Keyword(Keyword::Return),
+            Token::Integer(1),
+            Token::SemiColon,
+        ],
+        Statement::Conditional{
+            condition: Expression::Integer(1),
+            then: Box::new(Statement::Return { expression: Expression::Integer(1) }),
+            otherwise: None
+        }
+    )]
+    #[case::if_else_statement(
+        &[
+            Token::Keyword(Keyword::If),
+            Token::OpenParenthesis,
+            Token::Integer(1),
+            Token::CloseParenthesis,
+            Token::Keyword(Keyword::Return),
+            Token::Integer(1),
+            Token::SemiColon,
+            Token::Keyword(Keyword::Else),
+            Token::Keyword(Keyword::Return),
+            Token::Integer(2),
+            Token::SemiColon,
+        ],
+        Statement::Conditional{
+            condition: Expression::Integer(1),
+            then: Box::new(Statement::Return { expression: Expression::Integer(1) }),
+            otherwise: Some(Box::new(Statement::Return { expression: Expression::Integer(2) }))
+        }
+    )]
+    fn test_conditional(#[case] tokens: &[Token], #[case] expected: Statement) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let statement = Statement::parse(&mut tokens).unwrap();
+
+        assert_eq!(statement, expected);
+    }
+
+    #[rstest]
+    #[case(
+        &[
+            Token::Word("variable".to_string()),
+            Token::QuestionMark,
+            Token::Integer(1),
+            Token::Colon,
+            Token::Word("other".to_string()),
+            Token::QuestionMark,
+            Token::Integer(2),
+            Token::Colon,
+            Token::Integer(3),
+        ],
+        Expression::Ternary {
+            condition: Box::new(Expression::Variable("variable".to_string())),
+            then: Box::new(Expression::Integer(1)),
+            otherwise: Box::new(Expression::Ternary {
+                condition: Box::new(Expression::Variable("other".to_string())),
+                then: Box::new(Expression::Integer(2)),
+                otherwise: Box::new(Expression::Integer(3))
+            })
+        }
+    )]
+    fn test_expression_with_ternary(#[case] tokens: &[Token], #[case] expected: Expression) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let expression = Expression::parse(&mut tokens).unwrap();
+
+        assert_eq!(expression, expected);
     }
 }

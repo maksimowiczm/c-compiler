@@ -1,5 +1,5 @@
+use derive_more::FromStr;
 use std::iter::Peekable;
-use std::str::FromStr;
 
 pub struct Lexer<TInput: Iterator<Item = char>> {
     input: Peekable<TInput>,
@@ -40,6 +40,8 @@ pub enum Token {
     BitwiseAnd,
     Increment,
     Decrement,
+    Colon,
+    QuestionMark,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -57,22 +59,12 @@ pub enum Assignment {
     XorEqual,        // ^=
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, FromStr)]
 pub enum Keyword {
     Return,
     Int,
-}
-
-impl FromStr for Keyword {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "return" => Ok(Keyword::Return),
-            "int" => Ok(Keyword::Int),
-            _ => Err(()),
-        }
-    }
+    If,
+    Else,
 }
 
 impl<TInput> Lexer<TInput>
@@ -240,6 +232,8 @@ where
                     }
                     Some(Token::Integer(number))
                 }
+                ':' => Some(Token::Colon),
+                '?' => Some(Token::QuestionMark),
                 _ => {
                     if ch.is_whitespace() {
                         continue;
@@ -326,6 +320,10 @@ mod tests {
     #[case::and("&", vec![Token::BitwiseAnd, Token::EndOfFile])]
     #[case::increment("++", vec![Token::Increment, Token::EndOfFile])]
     #[case::decrement("--", vec![Token::Decrement, Token::EndOfFile])]
+    #[case::colon(":", vec![Token::Colon, Token::EndOfFile])]
+    #[case::question_mark("?", vec![Token::QuestionMark, Token::EndOfFile])]
+    #[case::if_keyword("if", vec![Token::Keyword(Keyword::If), Token::EndOfFile])]
+    #[case::else_keyword("else", vec![Token::Keyword(Keyword::Else), Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
