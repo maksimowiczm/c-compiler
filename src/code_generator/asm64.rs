@@ -1,7 +1,7 @@
 use crate::code_generator::CodeGenerator;
 use crate::parser::{
-    Expression, Function, LogicalOperator, Operator, Program, RelationalOperator, Statement,
-    UnaryOperator,
+    Block, Declaration, Expression, Function, LogicalOperator, Operator, Program,
+    RelationalOperator, Statement, UnaryOperator,
 };
 use derive_more::{Display, Error};
 use std::collections::HashMap;
@@ -156,7 +156,10 @@ fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGe
         Register64::Rsp.to_string(),
         Register64::Rbp.to_string(),
     ));
-    instructions.extend(generate_statement(body, &mut context)?);
+
+    body.into_iter().for_each(|block| {
+        instructions.extend(generate_block(block, &mut context).unwrap());
+    });
 
     // brute force return 0 for main, c standard, I will fix it later :) clueless
     instructions.push(Instruction::Comment("auto generated exit".to_string()));
@@ -170,6 +173,38 @@ fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGe
         Register64::Rax.to_string(),
     ));
     instructions.push(Instruction::Syscall);
+    Ok(instructions)
+}
+
+fn generate_block(
+    block: Block,
+    context: &mut Context,
+) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
+    match block {
+        Block::Statement(statement) => generate_statement(statement, context),
+        Block::Declaration(declaration) => generate_declaration(declaration, context),
+    }
+}
+
+fn generate_declaration(
+    declaration: Declaration,
+    context: &mut Context,
+) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
+    let Declaration {
+        variable,
+        expression,
+    } = declaration;
+
+    if context.variables.contains_key(&variable) {
+        return Err(Asm64CodeGenerationError::VariableAlreadyDeclared { variable });
+    }
+    let mut instructions = vec![];
+    if let Some(expression) = expression {
+        instructions.extend(generate_expression(expression, &context.variables)?);
+    }
+    instructions.push(Instruction::Push(Register64::Rax.to_string()));
+    context.stack_index += 8;
+    context.variables.insert(variable, context.stack_index);
     Ok(instructions)
 }
 
@@ -192,30 +227,43 @@ fn generate_statement(
                 .cloned()
                 .collect())
         }
-        Statement::Declaration {
-            variable,
-            expression,
+        Statement::Expression(expression) => generate_expression(expression, &context.variables),
+        Statement::Conditional {
+            condition,
+            then,
+            otherwise,
         } => {
-            if context.variables.contains_key(&variable) {
-                return Err(Asm64CodeGenerationError::VariableAlreadyDeclared { variable });
-            }
             let mut instructions = vec![];
-            if let Some(expression) = expression {
-                instructions.extend(generate_expression(expression, &context.variables)?);
+            instructions.extend(generate_expression(condition, &context.variables)?);
+            instructions.push(Instruction::Cmp(
+                "$0".to_string(),
+                Register64::Rax.to_string(),
+            ));
+            let end_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            let else_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            if let Some(_) = otherwise {
+                instructions.push(Instruction::Je(else_label.clone()));
+            } else {
+                instructions.push(Instruction::Je(end_label.clone()));
             }
-            instructions.push(Instruction::Push(Register64::Rax.to_string()));
-            context.stack_index += 8;
-            context.variables.insert(variable, context.stack_index);
+
+            instructions.extend(generate_statement(*then, context)?);
+
+            if let Some(otherwise) = otherwise {
+                instructions.push(Instruction::Jmp(end_label.clone()));
+                instructions.push(Instruction::Label(else_label));
+                instructions.extend(generate_statement(*otherwise, context)?);
+            }
+
+            instructions.push(Instruction::Label(end_label));
             Ok(instructions)
         }
-        Statement::StatementList(statements) => Ok(statements
-            .into_iter()
-            .map(|statement| generate_statement(statement, context))
-            .collect::<Result<Vec<Vec<Instruction>>, Asm64CodeGenerationError>>()?
-            .into_iter()
-            .flatten()
-            .collect()),
-        Statement::Expression(expression) => generate_expression(expression, &context.variables),
     }
 }
 
@@ -273,6 +321,32 @@ fn generate_expression(
                         .ok_or(Asm64CodeGenerationError::VariableNotDeclared { variable })?
                 ),
             ));
+            Ok(instructions)
+        }
+        Expression::Ternary {
+            condition,
+            then,
+            otherwise,
+        } => {
+            let mut instructions = generate_expression(*condition, variables)?;
+            instructions.push(Instruction::Cmp(
+                "$0".to_string(),
+                Register64::Rax.to_string(),
+            ));
+            let else_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            let end_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            instructions.push(Instruction::Je(else_label.clone()));
+            instructions.extend(generate_expression(*then, variables)?);
+            instructions.push(Instruction::Jmp(end_label.clone()));
+            instructions.push(Instruction::Label(else_label));
+            instructions.extend(generate_expression(*otherwise, variables)?);
+            instructions.push(Instruction::Label(end_label));
             Ok(instructions)
         }
     };
