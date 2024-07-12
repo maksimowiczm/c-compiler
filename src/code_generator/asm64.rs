@@ -20,6 +20,8 @@ pub enum Asm64CodeGenerationError {
     VariableNotDeclared {
         variable: String,
     },
+    ContinueNotInLoop,
+    BreakNotInLoop,
 }
 
 impl<B> CodeGenerator<B, Asm64CodeGenerationError> for StringyAssembly64CodeGenerator
@@ -109,6 +111,13 @@ struct Context {
     /// variable name, (offset, is_current_scope)
     variables: HashMap<String, (u64, bool)>,
     stack_index: u64,
+    loop_context: Option<LoopContext>,
+}
+
+#[derive(Clone)]
+struct LoopContext {
+    pre_post_expression: String,
+    end_label: String,
 }
 
 impl Context {
@@ -127,6 +136,22 @@ impl Context {
                 .map(|(k, v)| (k.clone(), (v.0, false)))
                 .collect(),
             stack_index: self.stack_index,
+            loop_context: self.loop_context.clone(),
+        }
+    }
+
+    fn loop_scope(&mut self, pre_post_expression: String, end_label: String) -> Self {
+        Context {
+            variables: self
+                .variables
+                .iter()
+                .map(|(k, v)| (k.clone(), (v.0, false)))
+                .collect(),
+            stack_index: self.stack_index,
+            loop_context: Some(LoopContext {
+                pre_post_expression,
+                end_label,
+            }),
         }
     }
 
@@ -315,13 +340,151 @@ fn generate_statement(
 
             Ok(instructions)
         }
-        Statement::NullExpression => todo!(),
-        Statement::For { .. } => todo!(),
-        Statement::ForDeclaration { .. } => todo!(),
-        Statement::While { .. } => todo!(),
-        Statement::Do { .. } => todo!(),
-        Statement::Continue => todo!(),
-        Statement::Break => todo!(),
+        Statement::NullExpression => Ok(vec![]),
+        Statement::For {
+            initializer,
+            condition,
+            post_expression,
+            body,
+        } => {
+            let mut instructions = vec![];
+            if let Some(initializer) = initializer {
+                instructions.extend(generate_expression(initializer, context)?);
+            }
+            let start_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            let pre_post = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            let end_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            instructions.push(Instruction::Label(start_label.clone()));
+            instructions.extend(generate_expression(condition, context)?);
+            instructions.push(Instruction::Cmp(
+                "$0".to_string(),
+                Register64::Rax.to_string(),
+            ));
+            instructions.push(Instruction::Je(end_label.clone()));
+            let mut inner_context = context.loop_scope(pre_post.clone(), end_label.clone());
+            instructions.extend(generate_statement(*body, &mut inner_context)?);
+            instructions.push(Instruction::Label(pre_post.clone()));
+            if let Some(post_expression) = post_expression {
+                instructions.extend(generate_expression(post_expression, &context)?);
+            }
+            instructions.push(Instruction::Jmp(start_label.clone()));
+            instructions.push(Instruction::Label(end_label));
+
+            Ok(instructions)
+        }
+        Statement::ForDeclaration {
+            declaration,
+            condition,
+            post_expression,
+            body,
+        } => {
+            let mut instructions = vec![];
+            let start_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            let pre_post = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            let end_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            let mut header_context = context.loop_scope(pre_post.clone(), end_label.clone());
+            instructions.extend(generate_declaration(declaration, &mut header_context)?);
+            instructions.push(Instruction::Label(start_label.clone()));
+            instructions.extend(generate_expression(condition, &header_context)?);
+            instructions.push(Instruction::Cmp(
+                "$0".to_string(),
+                Register64::Rax.to_string(),
+            ));
+            instructions.push(Instruction::Je(end_label.clone()));
+            let mut inner_context = header_context.inner_scope();
+            instructions.extend(generate_statement(*body, &mut inner_context)?);
+            instructions.push(Instruction::Label(pre_post.clone()));
+            if let Some(post_expression) = post_expression {
+                instructions.extend(generate_expression(post_expression, &header_context)?);
+            }
+            instructions.push(Instruction::Jmp(start_label.clone()));
+            instructions.push(Instruction::Label(end_label));
+
+            Ok(instructions)
+        }
+        Statement::While { condition, body } => {
+            let mut instructions = vec![];
+            let start_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            let end_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            instructions.push(Instruction::Label(start_label.clone()));
+            instructions.extend(generate_expression(condition, context)?);
+            instructions.push(Instruction::Cmp(
+                "$0".to_string(),
+                Register64::Rax.to_string(),
+            ));
+            instructions.push(Instruction::Je(end_label.clone()));
+            let mut inner_context = context.loop_scope(start_label.clone(), end_label.clone());
+            instructions.extend(generate_statement(*body, &mut inner_context)?);
+            instructions.push(Instruction::Jmp(start_label.clone()));
+            instructions.push(Instruction::Label(end_label));
+            Ok(instructions)
+        }
+        Statement::Do { body, condition } => {
+            let mut instructions = vec![];
+            let start_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+
+            let end_label = format!(".L{}", unsafe {
+                LABEL_COUNTER += 1;
+                LABEL_COUNTER
+            });
+            instructions.push(Instruction::Label(start_label.clone()));
+            let mut inner_context = context.loop_scope(start_label.clone(), end_label.clone());
+            instructions.extend(generate_statement(*body, &mut inner_context)?);
+            instructions.extend(generate_expression(condition, context)?);
+            instructions.push(Instruction::Cmp(
+                "$0".to_string(),
+                Register64::Rax.to_string(),
+            ));
+            instructions.push(Instruction::Je(end_label.clone()));
+            instructions.push(Instruction::Jmp(start_label.clone()));
+            instructions.push(Instruction::Label(end_label));
+            Ok(instructions)
+        }
+        Statement::Continue => {
+            if let Some(LoopContext {
+                pre_post_expression,
+                ..
+            }) = &context.loop_context
+            {
+                Ok(vec![Instruction::Jmp(pre_post_expression.clone())])
+            } else {
+                Err(Asm64CodeGenerationError::ContinueNotInLoop)
+            }
+        }
+        Statement::Break => {
+            if let Some(LoopContext { end_label, .. }) = &context.loop_context {
+                Ok(vec![Instruction::Jmp(end_label.clone())])
+            } else {
+                Err(Asm64CodeGenerationError::BreakNotInLoop)
+            }
+        }
     }
 }
 
