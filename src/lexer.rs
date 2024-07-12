@@ -65,6 +65,11 @@ pub enum Keyword {
     Int,
     If,
     Else,
+    For,
+    While,
+    Do,
+    Continue,
+    Break,
 }
 
 impl<TInput> Lexer<TInput>
@@ -324,6 +329,11 @@ mod tests {
     #[case::question_mark("?", vec![Token::QuestionMark, Token::EndOfFile])]
     #[case::if_keyword("if", vec![Token::Keyword(Keyword::If), Token::EndOfFile])]
     #[case::else_keyword("else", vec![Token::Keyword(Keyword::Else), Token::EndOfFile])]
+    #[case::for_keyword("for", vec![Token::Keyword(Keyword::For), Token::EndOfFile])]
+    #[case::while_keyword("while", vec![Token::Keyword(Keyword::While), Token::EndOfFile])]
+    #[case::do_keyword("do", vec![Token::Keyword(Keyword::Do), Token::EndOfFile])]
+    #[case::continue_keyword("continue", vec![Token::Keyword(Keyword::Continue), Token::EndOfFile])]
+    #[case::break_keyword("break", vec![Token::Keyword(Keyword::Break), Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();

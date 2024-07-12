@@ -49,12 +49,35 @@ pub enum Statement {
         expression: Expression,
     },
     Expression(Expression),
+    NullExpression,
     Conditional {
         condition: Expression,
         then: Box<Statement>,
         otherwise: Option<Box<Statement>>,
     },
     Compound(Vec<Block>),
+    For {
+        initializer: Option<Expression>,
+        condition: Expression,
+        post_expression: Option<Expression>,
+        body: Box<Statement>,
+    },
+    ForDeclaration {
+        declaration: Declaration,
+        condition: Expression,
+        post_expression: Option<Expression>,
+        body: Box<Statement>,
+    },
+    While {
+        condition: Expression,
+        body: Box<Statement>,
+    },
+    Do {
+        body: Box<Statement>,
+        condition: Expression,
+    },
+    Continue,
+    Break,
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -140,7 +163,7 @@ impl Parser {
                 break;
             }
 
-            functions.push(function(&mut tokens)?);
+            functions.push(Function::parse(&mut tokens)?);
         }
 
         let program = Program { functions };
@@ -166,31 +189,33 @@ fn expect_token(
     }
 }
 
-fn function(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Function, ParserError> {
-    expect_token(tokens, Token::Keyword(Keyword::Int))?;
-    let name = match tokens.next() {
-        Some(Token::Word(name)) => Ok(name),
-        _ => Err(ParserError::UnexpectedToken {
-            unexpected: Token::EndOfFile,
-            expected: vec![Token::Word("<function_name>".to_string())],
-            near_tokens: tokens.take(6).collect(),
-        }),
-    }?;
+impl Function {
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Function, ParserError> {
+        expect_token(tokens, Token::Keyword(Keyword::Int))?;
+        let name = match tokens.next() {
+            Some(Token::Word(name)) => Ok(name),
+            _ => Err(ParserError::UnexpectedToken {
+                unexpected: Token::EndOfFile,
+                expected: vec![Token::Word("<function_name>".to_string())],
+                near_tokens: tokens.take(6).collect(),
+            }),
+        }?;
 
-    expect_token(tokens, Token::OpenParenthesis)?;
-    expect_token(tokens, Token::CloseParenthesis)?;
-    expect_token(tokens, Token::OpenBrace)?;
+        expect_token(tokens, Token::OpenParenthesis)?;
+        expect_token(tokens, Token::CloseParenthesis)?;
+        expect_token(tokens, Token::OpenBrace)?;
 
-    let mut blocks = vec![];
-    while let Some(token) = tokens.peek() {
-        if let Token::CloseBrace = token {
-            break;
+        let mut blocks = vec![];
+        while let Some(token) = tokens.peek() {
+            if let Token::CloseBrace = token {
+                break;
+            }
+            blocks.push(Block::parse(tokens)?);
         }
-        blocks.push(Block::parse(tokens)?);
-    }
-    expect_token(tokens, Token::CloseBrace)?;
+        expect_token(tokens, Token::CloseBrace)?;
 
-    Ok(Function { name, body: blocks })
+        Ok(Function { name, body: blocks })
+    }
 }
 
 impl Block {
@@ -265,6 +290,25 @@ impl Statement {
                     otherwise,
                 })
             }
+            Token::Keyword(Keyword::Continue) => {
+                expect_token(tokens, Token::Keyword(Keyword::Continue))?;
+                expect_token(tokens, Token::SemiColon)?;
+
+                Ok(Statement::Continue)
+            }
+            Token::Keyword(Keyword::Break) => {
+                expect_token(tokens, Token::Keyword(Keyword::Break))?;
+                expect_token(tokens, Token::SemiColon)?;
+
+                Ok(Statement::Break)
+            }
+            Token::SemiColon => {
+                expect_token(tokens, Token::SemiColon)?;
+                Ok(Statement::NullExpression)
+            }
+            Token::Keyword(Keyword::For) => parse_for(tokens),
+            Token::Keyword(Keyword::While) => parse_while(tokens),
+            Token::Keyword(Keyword::Do) => parse_do_while(tokens),
             _ => Err(ParserError::UnexpectedToken {
                 unexpected: peek.clone(),
                 expected: vec![Token::Word("<variable_name>".to_string())],
@@ -272,6 +316,93 @@ impl Statement {
             }),
         }
     }
+}
+
+fn parse_for(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Statement, ParserError> {
+    fn condition(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Result<Expression, ParserError> {
+        match tokens.peek() {
+            Some(Token::SemiColon) => Ok(Expression::Integer(1)),
+            _ => Expression::parse(tokens),
+        }
+    }
+    fn post_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Result<Option<Expression>, ParserError> {
+        match tokens.peek() {
+            Some(Token::CloseParenthesis) => Ok(None),
+            _ => {
+                let expression = Expression::parse(tokens)?;
+                Ok(Some(expression))
+            }
+        }
+    }
+
+    expect_token(tokens, Token::Keyword(Keyword::For))?;
+    expect_token(tokens, Token::OpenParenthesis)?;
+
+    let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+    return if let Token::Keyword(Keyword::Int) = peek {
+        let declaration = Declaration::parse(tokens)?;
+        let condition = condition(tokens)?;
+        expect_token(tokens, Token::SemiColon)?;
+        let post_expression = post_expression(tokens)?;
+        expect_token(tokens, Token::CloseParenthesis)?;
+        let body = Box::new(Statement::parse(tokens)?);
+        Ok(Statement::ForDeclaration {
+            declaration,
+            condition,
+            post_expression,
+            body,
+        })
+    } else {
+        let initializer = if let Token::SemiColon = peek {
+            None
+        } else {
+            Some(Expression::parse(tokens)?)
+        };
+
+        expect_token(tokens, Token::SemiColon)?;
+        let condition = condition(tokens)?;
+        expect_token(tokens, Token::SemiColon)?;
+        let post_expression = post_expression(tokens)?;
+        expect_token(tokens, Token::CloseParenthesis)?;
+        let body = Box::new(Statement::parse(tokens)?);
+        Ok(Statement::For {
+            initializer,
+            condition,
+            post_expression,
+            body,
+        })
+    };
+}
+
+fn parse_while(
+    tokens: &mut Peekable<impl Iterator<Item = Token>>,
+) -> Result<Statement, ParserError> {
+    expect_token(tokens, Token::Keyword(Keyword::While))?;
+    expect_token(tokens, Token::OpenParenthesis)?;
+    let condition = Expression::parse(tokens)?;
+    expect_token(tokens, Token::CloseParenthesis)?;
+    let body = Box::new(Statement::parse(tokens)?);
+
+    Ok(Statement::While { condition, body })
+}
+
+fn parse_do_while(
+    tokens: &mut Peekable<impl Iterator<Item = Token>>,
+) -> Result<Statement, ParserError> {
+    expect_token(tokens, Token::Keyword(Keyword::Do))?;
+    let body = Box::new(Statement::parse(tokens)?);
+    expect_token(tokens, Token::Keyword(Keyword::While))?;
+    expect_token(tokens, Token::OpenParenthesis)?;
+    let condition = Expression::parse(tokens)?;
+    expect_token(tokens, Token::CloseParenthesis)?;
+    expect_token(tokens, Token::SemiColon)?;
+
+    Ok(Statement::Do { body, condition })
 }
 
 impl Declaration {
@@ -813,7 +944,128 @@ mod tests {
         &[Token::Integer(1), Token::SemiColon],
         Statement::Expression(Expression::Integer(1))
     )]
+    #[case::null_expression(
+        &[Token::SemiColon],
+        Statement::NullExpression
+    )]
+    #[case::continue_statement(
+        &[Token::Keyword(Keyword::Continue), Token::SemiColon],
+        Statement::Continue
+    )]
+    #[case::break_statement(
+        &[Token::Keyword(Keyword::Break), Token::SemiColon],
+        Statement::Break
+    )]
     fn test_statement(#[case] tokens: &[Token], #[case] expected: Statement) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let statement = Statement::parse(&mut tokens).unwrap();
+
+        assert_eq!(statement, expected);
+    }
+
+    #[rstest]
+    #[case::do_while(
+        &[
+            Token::Keyword(Keyword::Do),
+            Token::OpenBrace,
+            Token::Keyword(Keyword::Continue),
+            Token::SemiColon,
+            Token::CloseBrace,
+            Token::Keyword(Keyword::While),
+            Token::OpenParenthesis,
+            Token::Integer(1),
+            Token::CloseParenthesis,
+            Token::SemiColon,
+        ],
+        Statement::Do {
+            body: Box::new(Statement::Compound(vec![Block::Statement(Statement::Continue)])),
+            condition: Expression::Integer(1),
+        }
+    )]
+    #[case::while_statement(
+        &[
+            Token::Keyword(Keyword::While),
+            Token::OpenParenthesis,
+            Token::Integer(1),
+            Token::CloseParenthesis,
+            Token::OpenBrace,
+            Token::Keyword(Keyword::Continue),
+            Token::SemiColon,
+            Token::CloseBrace,
+        ],
+        Statement::While {
+            condition: Expression::Integer(1),
+            body: Box::new(Statement::Compound(vec![Block::Statement(Statement::Continue)])),
+        }
+    )]
+    #[case::for_statement(
+        &[
+            Token::Keyword(Keyword::For),
+            Token::OpenParenthesis,
+            Token::Integer(1),
+            Token::SemiColon,
+            Token::Integer(2),
+            Token::SemiColon,
+            Token::Integer(3),
+            Token::CloseParenthesis,
+            Token::OpenBrace,
+            Token::Keyword(Keyword::Continue),
+            Token::SemiColon,
+            Token::CloseBrace,
+        ],
+        Statement::For {
+            initializer: Some(Expression::Integer(1)),
+            condition: Expression::Integer(2),
+            post_expression: Some(Expression::Integer(3)),
+            body: Box::new(Statement::Compound(vec![Block::Statement(Statement::Continue)])),
+        }
+    )]
+    #[case::for_with_declaration_statement(
+        &[
+            Token::Keyword(Keyword::For),
+            Token::OpenParenthesis,
+            Token::Keyword(Keyword::Int),
+            Token::Word("variable".to_string()),
+            Token::SemiColon,
+            Token::Integer(2),
+            Token::SemiColon,
+            Token::Integer(3),
+            Token::CloseParenthesis,
+            Token::OpenBrace,
+            Token::Keyword(Keyword::Continue),
+            Token::SemiColon,
+            Token::CloseBrace,
+        ],
+        Statement::ForDeclaration {
+            declaration: Declaration {
+                variable: "variable".to_string(),
+                expression: None,
+            },
+            condition: Expression::Integer(2),
+            post_expression: Some(Expression::Integer(3)),
+            body: Box::new(Statement::Compound(vec![Block::Statement(Statement::Continue)])),
+        }
+    )]
+    #[case::empty_for_statement(
+        &[
+            Token::Keyword(Keyword::For),
+            Token::OpenParenthesis,
+            Token::SemiColon,
+            Token::SemiColon,
+            Token::CloseParenthesis,
+            Token::OpenBrace,
+            Token::Keyword(Keyword::Continue),
+            Token::SemiColon,
+            Token::CloseBrace,
+        ],
+        Statement::For {
+            initializer: None,
+            condition: Expression::Integer(1),
+            post_expression: None,
+            body: Box::new(Statement::Compound(vec![Block::Statement(Statement::Continue)])),
+        }
+    )]
+    fn test_loop(#[case] tokens: &[Token], #[case] expected: Statement) {
         let mut tokens = tokens.iter().cloned().peekable();
         let statement = Statement::parse(&mut tokens).unwrap();
 
@@ -1587,7 +1839,7 @@ mod tests {
     )]
     fn test_function(#[case] tokens: &[Token], #[case] expected: Function) {
         let mut tokens = tokens.iter().cloned().peekable();
-        let function = function(&mut tokens).unwrap();
+        let function = Function::parse(&mut tokens).unwrap();
 
         assert_eq!(function, expected);
     }

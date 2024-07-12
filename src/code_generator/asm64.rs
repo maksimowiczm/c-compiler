@@ -315,6 +315,13 @@ fn generate_statement(
 
             Ok(instructions)
         }
+        Statement::NullExpression => todo!(),
+        Statement::For { .. } => todo!(),
+        Statement::ForDeclaration { .. } => todo!(),
+        Statement::While { .. } => todo!(),
+        Statement::Do { .. } => todo!(),
+        Statement::Continue => todo!(),
+        Statement::Break => todo!(),
     }
 }
 
