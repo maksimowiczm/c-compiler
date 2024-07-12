@@ -573,6 +573,7 @@ fn generate_expression(
             instructions.push(Instruction::Label(end_label));
             Ok(instructions)
         }
+        Expression::Call { .. } => todo!(),
     };
 
     result

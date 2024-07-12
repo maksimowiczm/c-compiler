@@ -18,6 +18,18 @@ pub enum ParserError {
         expected: Vec<Token>,
         near_tokens: Vec<Token>,
     },
+    #[display("Two definitions of function {:?}", name)]
+    TwoDefinitionsOfFunction {
+        name: String,
+    },
+    #[display("Two different definitions of function {:?}", name)]
+    TwoDifferentDeclarationsOfFunction {
+        name: String,
+    },
+    #[display("Function definition doesn't match declaration {:?}", name)]
+    DefinitionDoesntMatchDeclaration {
+        name: String,
+    },
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -27,8 +39,10 @@ pub struct Program {
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Function {
+    pub(crate) declaration: bool,
     pub(crate) name: String,
     pub(crate) body: Vec<Block>,
+    pub(crate) arguments: Vec<String>,
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -112,6 +126,10 @@ pub enum Expression {
         then: Box<Expression>,
         otherwise: Box<Expression>,
     },
+    Call {
+        function: String,
+        arguments: Vec<Expression>,
+    },
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -166,7 +184,63 @@ impl Parser {
 
         let program = Program { functions };
 
+        Self::validate_functions(&program)?;
+
         Ok(program)
+    }
+
+    fn validate_functions(program: &Program) -> Result<(), ParserError> {
+        let declarations = program
+            .functions
+            .iter()
+            .filter(|function| function.declaration)
+            .collect::<Vec<_>>();
+
+        let definitions = program
+            .functions
+            .iter()
+            .filter(|function| !function.declaration)
+            .collect::<Vec<_>>();
+
+        for definition in &definitions {
+            if definitions
+                .iter()
+                .filter(|f| f.name == definition.name)
+                .count()
+                > 1
+            {
+                return Err(ParserError::TwoDefinitionsOfFunction {
+                    name: definition.name.clone(),
+                });
+            }
+        }
+
+        for declaration in &declarations {
+            if declarations
+                .iter()
+                .filter(|f| f.name == declaration.name)
+                .any(|f| f.arguments.len() != declaration.arguments.len())
+            {
+                return Err(ParserError::TwoDifferentDeclarationsOfFunction {
+                    name: declaration.name.clone(),
+                });
+            }
+
+            if definitions
+                .iter()
+                .filter(|f| {
+                    f.name == declaration.name && f.arguments.len() != declaration.arguments.len()
+                })
+                .next()
+                .is_some()
+            {
+                return Err(ParserError::DefinitionDoesntMatchDeclaration {
+                    name: declaration.name.clone(),
+                });
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -200,7 +274,48 @@ impl Function {
         }?;
 
         expect_token(tokens, Token::OpenParenthesis)?;
-        expect_token(tokens, Token::CloseParenthesis)?;
+
+        let mut arguments = vec![];
+        while let Some(token) = tokens.next() {
+            if let Token::CloseParenthesis = token {
+                break;
+            }
+            if let Token::Keyword(Keyword::Int) = token {
+                let next = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+                if let Token::Word(argument) = next {
+                    arguments.push(argument);
+                } else {
+                    return Err(ParserError::UnexpectedToken {
+                        unexpected: next,
+                        expected: vec![Token::Word("<variable_name>".to_string())],
+                        near_tokens: tokens.take(6).collect(),
+                    });
+                }
+            } else {
+                return Err(ParserError::UnexpectedToken {
+                    unexpected: token.clone(),
+                    expected: vec![Token::Keyword(Keyword::Int)],
+                    near_tokens: tokens.take(6).collect(),
+                });
+            }
+
+            if let Some(Token::Comma) = tokens.peek() {
+                tokens.next();
+            }
+        }
+
+        let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        if let Token::SemiColon = peek {
+            tokens.next();
+            return Ok(Function {
+                declaration: true,
+                name,
+                body: vec![],
+                arguments,
+            });
+        }
+
         expect_token(tokens, Token::OpenBrace)?;
 
         let mut blocks = vec![];
@@ -212,7 +327,12 @@ impl Function {
         }
         expect_token(tokens, Token::CloseBrace)?;
 
-        Ok(Function { name, body: blocks })
+        Ok(Function {
+            declaration: false,
+            name,
+            body: blocks,
+            arguments,
+        })
     }
 }
 
@@ -861,7 +981,26 @@ impl Expression {
             Token::Word(id) => {
                 let peek = tokens.peek();
 
-                if let Some(Token::Increment) = peek {
+                if let Some(Token::OpenParenthesis) = peek {
+                    tokens.next();
+                    let mut arguments = vec![];
+                    while let Some(token) = tokens.peek() {
+                        if let Token::CloseParenthesis = token {
+                            break;
+                        }
+                        arguments.push(Expression::parse(tokens)?);
+                        // allows for trailing commas
+                        if let Some(Token::Comma) = tokens.peek() {
+                            tokens.next();
+                        }
+                    }
+                    expect_token(tokens, Token::CloseParenthesis)?;
+
+                    return Ok(Expression::Call {
+                        function: id,
+                        arguments,
+                    });
+                } else if let Some(Token::Increment) = peek {
                     tokens.next();
                     return Ok(Expression::Assignment {
                         variable: id.clone(),
@@ -1846,7 +1985,9 @@ mod tests {
             name: "main".to_string(),
             body: vec![
                 Block::Statement(Statement::Return { expression: Expression::Integer(1234) })
-            ]
+            ],
+            arguments: vec![],
+            declaration: false
         }
     )]
     #[case::multiple_statements(
@@ -1883,7 +2024,9 @@ mod tests {
                     })
                 })),
                 Block::Statement(Statement::Return { expression: Expression::Integer(1234) })
-            ]
+            ],
+            arguments: vec![],
+            declaration: false
         }
     )]
     fn test_function(#[case] tokens: &[Token], #[case] expected: Function) {
@@ -2224,5 +2367,206 @@ mod tests {
         let blocks = Statement::parse(&mut tokens).unwrap();
 
         assert_eq!(blocks, expected);
+    }
+
+    #[rstest]
+    #[case::no_parameters(
+        &[
+            Token::Word("func".to_string()),
+            Token::OpenParenthesis,
+            Token::CloseParenthesis,
+        ],
+        Expression::Call {
+            function: "func".to_string(),
+            arguments: vec![]
+        }
+    )]
+    #[case::with_parameter(
+        &[
+            Token::Word("func".to_string()),
+            Token::OpenParenthesis,
+            Token::Word("variable".to_string()),
+            Token::CloseParenthesis,
+        ],
+        Expression::Call {
+            function: "func".to_string(),
+            arguments: vec![Expression::Variable("variable".to_string())]
+        }
+    )]
+    #[case::with_parameters(
+        &[
+            Token::Word("func".to_string()),
+            Token::OpenParenthesis,
+            Token::Word("variable".to_string()),
+            Token::Comma,
+            Token::Integer(1),
+            Token::CloseParenthesis,
+        ],
+        Expression::Call {
+            function: "func".to_string(),
+            arguments: vec![
+                Expression::Variable("variable".to_string()),
+                Expression::Integer(1)
+            ]
+        }
+    )]
+    fn test_call(#[case] tokens: &[Token], #[case] expected: Expression) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let expression = Expression::parse(&mut tokens).unwrap();
+
+        assert_eq!(expression, expected);
+    }
+
+    #[rstest]
+    #[case::no_parameters(
+        &[
+            Token::Keyword(Keyword::Int),
+            Token::Word("func".to_string()),
+            Token::OpenParenthesis,
+            Token::CloseParenthesis,
+            Token::SemiColon,
+        ],
+        Function {
+            name: "func".to_string(),
+            body: vec![],
+            arguments: vec![],
+            declaration: true
+        }
+    )]
+    #[case::with_parameter(
+        &[
+            Token::Keyword(Keyword::Int),
+            Token::Word("func".to_string()),
+            Token::OpenParenthesis,
+            Token::Keyword(Keyword::Int),
+            Token::Word("variable".to_string()),
+            Token::CloseParenthesis,
+            Token::SemiColon,
+        ],
+        Function {
+            name: "func".to_string(),
+            body: vec![],
+            arguments: vec![ "variable".to_string() ],
+            declaration: true
+        }
+    )]
+    #[case::with_parameters(
+        &[
+            Token::Keyword(Keyword::Int),
+            Token::Word("func".to_string()),
+            Token::OpenParenthesis,
+            Token::Keyword(Keyword::Int),
+            Token::Word("variable".to_string()),
+            Token::Comma,
+            Token::Keyword(Keyword::Int),
+            Token::Word("other".to_string()),
+            Token::CloseParenthesis,
+            Token::SemiColon,
+        ],
+        Function {
+            name: "func".to_string(),
+            body: vec![],
+            arguments: vec![ "variable".to_string(), "other".to_string() ],
+            declaration: true
+        }
+    )]
+    #[case::with_argument_as_return(
+        &[
+            Token::Keyword(Keyword::Int),
+            Token::Word("func".to_string()),
+            Token::OpenParenthesis,
+            Token::Keyword(Keyword::Int),
+            Token::Word("variable".to_string()),
+            Token::CloseParenthesis,
+            Token::OpenBrace,
+            Token::Keyword(Keyword::Return),
+            Token::Word("variable".to_string()),
+            Token::SemiColon,
+            Token::CloseBrace
+        ],
+        Function {
+            name: "func".to_string(),
+            body: vec![
+                Block::Statement(Statement::Return { expression: Expression::Variable("variable".to_string()) })
+            ],
+            arguments: vec![ "variable".to_string() ],
+            declaration: false
+        }
+    )]
+    fn test_function_declaration(#[case] tokens: &[Token], #[case] expected: Function) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let function = Function::parse(&mut tokens).unwrap();
+
+        assert_eq!(function, expected);
+    }
+
+    #[rstest]
+    #[case::multiple_functions_with_body(
+        &[
+            Token::Keyword(Keyword::Int),
+            Token::Word("func".to_string()),
+            Token::OpenParenthesis,
+            Token::CloseParenthesis,
+            Token::OpenBrace,
+            Token::CloseBrace,
+            Token::Keyword(Keyword::Int),
+            Token::Word("main".to_string()),
+            Token::OpenParenthesis,
+            Token::CloseParenthesis,
+            Token::OpenBrace,
+            Token::CloseBrace,
+        ],
+        Program {
+            functions: vec![
+                Function {
+                    name: "func".to_string(),
+                    body: vec![],
+                    arguments: vec![],
+                    declaration: false,
+                },
+                Function {
+                    name: "main".to_string(),
+                    body: vec![],
+                    arguments: vec![],
+                    declaration: false,
+                }
+            ]
+        }
+    )]
+    #[case::multiple_fucntions_without_body(
+        &[
+            Token::Keyword(Keyword::Int),
+            Token::Word("func".to_string()),
+            Token::OpenParenthesis,
+            Token::CloseParenthesis,
+            Token::SemiColon,
+            Token::Keyword(Keyword::Int),
+            Token::Word("main".to_string()),
+            Token::OpenParenthesis,
+            Token::CloseParenthesis,
+            Token::SemiColon,
+        ],
+        Program {
+            functions: vec![
+                Function {
+                    name: "func".to_string(),
+                    body: vec![],
+                    arguments: vec![],
+                    declaration: true
+                },
+                Function {
+                    name: "main".to_string(),
+                    body: vec![],
+                    arguments: vec![],
+                    declaration: true
+                }
+            ]
+        }
+    )]
+    fn test_parser(#[case] tokens: &[Token], #[case] expected: Program) {
+        let tokens = tokens.iter().cloned().peekable();
+        let program = Parser::parse(tokens.into_iter().peekable()).unwrap();
+
+        assert_eq!(program, expected);
     }
 }

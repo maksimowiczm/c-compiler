@@ -42,6 +42,7 @@ pub enum Token {
     Decrement,
     Colon,
     QuestionMark,
+    Comma,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -239,6 +240,7 @@ where
                 }
                 ':' => Some(Token::Colon),
                 '?' => Some(Token::QuestionMark),
+                ',' => Some(Token::Comma),
                 _ => {
                     if ch.is_whitespace() {
                         continue;
@@ -334,6 +336,7 @@ mod tests {
     #[case::do_keyword("do", vec![Token::Keyword(Keyword::Do), Token::EndOfFile])]
     #[case::continue_keyword("continue", vec![Token::Keyword(Keyword::Continue), Token::EndOfFile])]
     #[case::break_keyword("break", vec![Token::Keyword(Keyword::Break), Token::EndOfFile])]
+    #[case::coma(",", vec![Token::Comma, Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
