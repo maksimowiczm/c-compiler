@@ -22,6 +22,7 @@ pub enum Asm64CodeGenerationError {
     },
     ContinueNotInLoop,
     BreakNotInLoop,
+    TooManyArguments,
 }
 
 impl<B> CodeGenerator<B, Asm64CodeGenerationError> for StringyAssembly64CodeGenerator
@@ -106,13 +107,15 @@ enum Instruction {
     Comment(String),
     #[display("ret")]
     Ret,
+    #[display("call {}", _0)]
+    Call(String),
 }
 
 #[derive(Default)]
 struct Context {
     /// variable name, (offset, is_current_scope)
-    variables: HashMap<String, (u64, bool)>,
-    stack_index: u64,
+    variables: HashMap<String, (i64, bool)>,
+    stack_index: u32,
     loop_context: Option<LoopContext>,
 }
 
@@ -167,18 +170,19 @@ impl Context {
                         variable: name,
                     });
                 }
-                *stack = self.stack_index;
+                *stack = self.stack_index as i64 * -1;
                 *scope = true;
             }
             None => {
-                self.variables.insert(name, (self.stack_index, true));
+                self.variables
+                    .insert(name, (self.stack_index as i64 * -1, true));
             }
         }
 
         Ok(())
     }
 
-    fn stack_size(&self) -> u64 {
+    fn stack_size(&self) -> u32 {
         self.stack_index
     }
 }
@@ -197,6 +201,12 @@ enum Register64 {
     Rsp,
     #[display("%rcx")]
     Rcx,
+    #[display("%rsi")]
+    Rsi,
+    #[display("%r8")]
+    R8,
+    #[display("%r9")]
+    R9,
 }
 
 #[derive(Display, Clone, Copy)]
@@ -208,9 +218,22 @@ enum Register8 {
 }
 
 fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
-    let Function { body, name, .. } = function;
-    let mut context = Default::default();
-    let mut instructions = vec![Instruction::Globl(name.clone()), Instruction::Label(name)];
+    let Function {
+        body,
+        name,
+        arguments,
+        ..
+    } = function;
+    let mut context = Context::default();
+    for (i, argument) in arguments.into_iter().enumerate() {
+        context
+            .variables
+            .insert(argument, (8 + 8 * (i as i64 + 1), true));
+    }
+    let mut instructions = vec![
+        Instruction::Globl(name.clone()),
+        Instruction::Label(name.clone()),
+    ];
     // insert prologue
     instructions.push(Instruction::Push(Register64::Rbp.to_string()));
     instructions.push(Instruction::Mov(
@@ -222,14 +245,17 @@ fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGe
         instructions.extend(generate_block(block, &mut context)?);
     }
 
-    // brute force return 0 for main, c standard, I will fix it later :) clueless
-    instructions.push(Instruction::Comment("auto generated exit".to_string()));
-    instructions.extend(context.epilogue());
-    instructions.push(Instruction::Mov(
-        "$0".to_string(),
-        Register64::Rax.to_string(),
-    ));
-    instructions.push(Instruction::Ret);
+    if name == "main" {
+        // brute force return 0 for main, c standard, I will fix it later :) clueless
+        instructions.push(Instruction::Comment("auto generated exit".to_string()));
+        instructions.extend(context.epilogue());
+        instructions.push(Instruction::Mov(
+            "$0".to_string(),
+            Register64::Rax.to_string(),
+        ));
+        instructions.push(Instruction::Ret);
+    }
+
     Ok(instructions)
 }
 
@@ -515,7 +541,7 @@ fn generate_expression(
                 .get(&name)
                 .ok_or(Asm64CodeGenerationError::VariableNotDeclared { variable: name })?;
             Ok(vec![Instruction::Mov(
-                format!("-{}(%rbp)", offset.0),
+                format!("{}(%rbp)", offset.0),
                 Register64::Rax.to_string(),
             )])
         }
@@ -564,7 +590,39 @@ fn generate_expression(
             instructions.push(Instruction::Label(end_label));
             Ok(instructions)
         }
-        Expression::Call { .. } => todo!(),
+        Expression::Call {
+            function,
+            arguments,
+        } => {
+            let mut instructions = vec![];
+            if arguments.len() > 6 {
+                return Err(Asm64CodeGenerationError::TooManyArguments);
+            }
+
+            let registers = [
+                Register64::Rdi,
+                Register64::Rsi,
+                Register64::Rdx,
+                Register64::Rcx,
+                Register64::R8,
+                Register64::R9,
+            ];
+
+            let iter = arguments.into_iter();
+
+            iter.take(6)
+                .zip(registers.iter())
+                .for_each(|(argument, register)| {
+                    instructions.extend(generate_expression(argument, context).unwrap());
+                    instructions.push(Instruction::Mov(
+                        Register64::Rax.to_string(),
+                        register.to_string(),
+                    ));
+                });
+
+            instructions.push(Instruction::Call(function));
+            Ok(instructions)
+        }
     };
 
     result
