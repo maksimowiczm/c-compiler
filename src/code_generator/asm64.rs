@@ -800,17 +800,5 @@ fn generate_unary_operator(operator: UnaryOperator) -> Vec<Instruction> {
                 Instruction::Sete(Register8::Al.to_string()),
             ]
         }
-        UnaryOperator::Increment => {
-            vec![Instruction::Add(
-                "$1".to_string(),
-                Register64::Rax.to_string(),
-            )]
-        }
-        UnaryOperator::Decrement => {
-            vec![Instruction::Add(
-                "$-1".to_string(),
-                Register64::Rax.to_string(),
-            )]
-        }
     }
 }

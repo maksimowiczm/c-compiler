@@ -119,8 +119,6 @@ pub enum UnaryOperator {
     Negation,
     BitwiseNot,
     LogicalNot,
-    Increment,
-    Decrement,
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -865,15 +863,26 @@ impl Expression {
 
                 if let Some(Token::Increment) = peek {
                     tokens.next();
-                    return Ok(Expression::UnaryOperation {
-                        operator: UnaryOperator::Increment,
-                        operand: Box::new(Expression::Variable(id)),
+                    return Ok(Expression::Assignment {
+                        variable: id.clone(),
+                        expression: Box::new(Expression::Operation {
+                            operator: Operator::Addition,
+                            left: Box::new(Expression::Variable(id)),
+                            right: Box::new(Expression::Integer(1)),
+                        }),
                     });
                 } else if let Some(Token::Decrement) = peek {
                     tokens.next();
-                    return Ok(Expression::UnaryOperation {
-                        operator: UnaryOperator::Decrement,
-                        operand: Box::new(Expression::Variable(id)),
+                    return Ok(Expression::Assignment {
+                        variable: id.clone(),
+                        expression: Box::new(Expression::Operation {
+                            operator: Operator::Addition,
+                            left: Box::new(Expression::Variable(id)),
+                            right: Box::new(Expression::UnaryOperation {
+                                operator: UnaryOperator::Negation,
+                                operand: Box::new(Expression::Integer(1)),
+                            }),
+                        }),
                     });
                 }
 
@@ -909,17 +918,44 @@ impl Expression {
             }
             Token::Increment => {
                 let factor = Expression::factor(tokens)?;
-                Ok(Expression::UnaryOperation {
-                    operator: UnaryOperator::Increment,
-                    operand: Box::new(factor),
-                })
+                if let Expression::Variable(variable) = &factor {
+                    Ok(Expression::Assignment {
+                        variable: variable.clone(),
+                        expression: Box::new(Expression::Operation {
+                            operator: Operator::Addition,
+                            left: Box::new(factor),
+                            right: Box::new(Expression::Integer(1)),
+                        }),
+                    })
+                } else {
+                    Err(ParserError::UnexpectedToken {
+                        unexpected: token,
+                        expected: vec![Token::Word("<variable_name>".to_string())],
+                        near_tokens: tokens.take(6).collect(),
+                    })
+                }
             }
             Token::Decrement => {
                 let factor = Expression::factor(tokens)?;
-                Ok(Expression::UnaryOperation {
-                    operator: UnaryOperator::Decrement,
-                    operand: Box::new(factor),
-                })
+                if let Expression::Variable(variable) = &factor {
+                    Ok(Expression::Assignment {
+                        variable: variable.clone(),
+                        expression: Box::new(Expression::Operation {
+                            operator: Operator::Addition,
+                            left: Box::new(factor),
+                            right: Box::new(Expression::UnaryOperation {
+                                operator: UnaryOperator::Negation,
+                                operand: Box::new(Expression::Integer(1)),
+                            }),
+                        }),
+                    })
+                } else {
+                    Err(ParserError::UnexpectedToken {
+                        unexpected: token,
+                        expected: vec![Token::Word("<variable_name>".to_string())],
+                        near_tokens: tokens.take(6).collect(),
+                    })
+                }
             }
             _ => Err(ParserError::UnexpectedToken {
                 unexpected: token,
@@ -1535,43 +1571,34 @@ mod tests {
             right: Box::new(Expression::Integer(2))
         }
     )]
-    #[case::increment(
-        &[
-            Token::Increment,
-            Token::Integer(1),
-        ],
-        Expression::UnaryOperation {
-            operator: UnaryOperator::Increment,
-            operand: Box::new(Expression::Integer(1))
-        }
-    )]
-    #[case::decrement(
-        &[
-            Token::Decrement,
-            Token::Integer(1),
-        ],
-        Expression::UnaryOperation {
-            operator: UnaryOperator::Decrement,
-            operand: Box::new(Expression::Integer(1))
-        }
-    )]
     #[case::increment_addition_decrement(
         &[
             Token::Increment,
-            Token::Integer(1),
+            Token::Word("variable".to_string()),
             Token::Addition,
             Token::Decrement,
-            Token::Integer(2),
+            Token::Word("other".to_string()),
         ],
         Expression::Operation {
             operator: Operator::Addition,
-            left: Box::new(Expression::UnaryOperation {
-                operator: UnaryOperator::Increment,
-                operand: Box::new(Expression::Integer(1))
+            left: Box::new(Expression::Assignment {
+                variable: "variable".to_string(),
+                expression: Box::new(Expression::Operation {
+                    operator: Operator::Addition,
+                    left: Box::new(Expression::Variable("variable".to_string())),
+                    right: Box::new(Expression::Integer(1))
+                })
             }),
-            right: Box::new(Expression::UnaryOperation {
-                operator: UnaryOperator::Decrement,
-                operand: Box::new(Expression::Integer(2))
+            right: Box::new(Expression::Assignment {
+                variable: "other".to_string(),
+                expression: Box::new(Expression::Operation {
+                    operator: Operator::Addition,
+                    left: Box::new(Expression::Variable("other".to_string())),
+                    right: Box::new(Expression::UnaryOperation {
+                        operator: UnaryOperator::Negation,
+                        operand: Box::new(Expression::Integer(1))
+                    })
+                })
             })
         }
     )]
@@ -1580,9 +1607,13 @@ mod tests {
             Token::Increment,
             Token::Word("variable".to_string()),
         ],
-        Expression::UnaryOperation {
-            operator: UnaryOperator::Increment,
-            operand: Box::new(Expression::Variable("variable".to_string()))
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::Operation {
+                operator: Operator::Addition,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::Integer(1))
+            })
         }
     )]
     #[case::left_decrement(
@@ -1590,9 +1621,16 @@ mod tests {
             Token::Decrement,
             Token::Word("variable".to_string()),
         ],
-        Expression::UnaryOperation {
-            operator: UnaryOperator::Decrement,
-            operand: Box::new(Expression::Variable("variable".to_string()))
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::Operation {
+                operator: Operator::Addition,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::UnaryOperation {
+                    operator: UnaryOperator::Negation,
+                    operand: Box::new(Expression::Integer(1))
+                })
+            })
         }
     )]
     #[case::right_increment(
@@ -1600,9 +1638,13 @@ mod tests {
             Token::Word("variable".to_string()),
             Token::Increment,
         ],
-        Expression::UnaryOperation {
-            operator: UnaryOperator::Increment,
-            operand: Box::new(Expression::Variable("variable".to_string()))
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::Operation {
+                operator: Operator::Addition,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::Integer(1))
+            })
         }
     )]
     #[case::right_decrement(
@@ -1610,9 +1652,16 @@ mod tests {
             Token::Word("variable".to_string()),
             Token::Decrement,
         ],
-        Expression::UnaryOperation {
-            operator: UnaryOperator::Decrement,
-            operand: Box::new(Expression::Variable("variable".to_string()))
+        Expression::Assignment {
+            variable: "variable".to_string(),
+            expression: Box::new(Expression::Operation {
+                operator: Operator::Addition,
+                left: Box::new(Expression::Variable("variable".to_string())),
+                right: Box::new(Expression::UnaryOperation {
+                    operator: UnaryOperator::Negation,
+                    operand: Box::new(Expression::Integer(1))
+                })
+            })
         }
     )]
     #[case::ternary(
