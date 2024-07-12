@@ -54,6 +54,7 @@ pub enum Statement {
         then: Box<Statement>,
         otherwise: Option<Box<Statement>>,
     },
+    Compound(Vec<Block>),
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -224,6 +225,19 @@ impl Statement {
                 let expression = Expression::parse(tokens)?;
                 expect_token(tokens, Token::SemiColon)?;
                 return Ok(Statement::Expression(expression));
+            }
+            Token::OpenBrace => {
+                expect_token(tokens, Token::OpenBrace)?;
+                let mut blocks = vec![];
+                while let Some(token) = tokens.peek() {
+                    if let Token::CloseBrace = token {
+                        break;
+                    }
+                    blocks.push(Block::parse(tokens)?);
+                }
+                expect_token(tokens, Token::CloseBrace)?;
+
+                Ok(Statement::Compound(blocks))
             }
             Token::Keyword(Keyword::Return) => {
                 expect_token(tokens, Token::Keyword(Keyword::Return))?;
@@ -1889,5 +1903,25 @@ mod tests {
         let expression = Expression::parse(&mut tokens).unwrap();
 
         assert_eq!(expression, expected);
+    }
+
+    #[rstest]
+    #[case(
+        &[
+            Token::OpenBrace,
+            Token::Keyword(Keyword::Int),
+            Token::Word("variable".to_string()),
+            Token::SemiColon,
+            Token::CloseBrace,
+        ],
+        Statement::Compound(vec![
+            Block::Declaration(Declaration { variable: "variable".to_string(), expression: None })
+        ])
+    )]
+    fn test_compound_block(#[case] tokens: &[Token], #[case] expected: Statement) {
+        let mut tokens = tokens.iter().cloned().peekable();
+        let blocks = Statement::parse(&mut tokens).unwrap();
+
+        assert_eq!(blocks, expected);
     }
 }

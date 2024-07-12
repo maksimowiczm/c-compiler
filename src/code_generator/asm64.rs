@@ -106,7 +106,8 @@ enum Instruction {
 
 #[derive(Default)]
 struct Context {
-    variables: HashMap<String, u64>,
+    /// variable name, (offset, is_current_scope)
+    variables: HashMap<String, (u64, bool)>,
     stack_index: u64,
 }
 
@@ -116,6 +117,42 @@ impl Context {
             Instruction::Mov(Register64::Rbp.to_string(), Register64::Rsp.to_string()),
             Instruction::Pop(Register64::Rbp.to_string()),
         ]
+    }
+
+    fn inner_scope(&mut self) -> Self {
+        Context {
+            variables: self
+                .variables
+                .iter()
+                .map(|(k, v)| (k.clone(), (v.0, false)))
+                .collect(),
+            stack_index: self.stack_index,
+        }
+    }
+
+    fn insert_variable(&mut self, name: String) -> Result<(), Asm64CodeGenerationError> {
+        self.stack_index += 8;
+
+        match self.variables.get_mut(&name) {
+            Some((stack, scope)) => {
+                if *scope {
+                    return Err(Asm64CodeGenerationError::VariableAlreadyDeclared {
+                        variable: name,
+                    });
+                }
+                *stack = self.stack_index;
+                *scope = true;
+            }
+            None => {
+                self.variables.insert(name, (self.stack_index, true));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn stack_size(&self) -> u64 {
+        self.stack_index
     }
 }
 
@@ -157,9 +194,9 @@ fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGe
         Register64::Rbp.to_string(),
     ));
 
-    body.into_iter().for_each(|block| {
-        instructions.extend(generate_block(block, &mut context).unwrap());
-    });
+    for block in body {
+        instructions.extend(generate_block(block, &mut context)?);
+    }
 
     // brute force return 0 for main, c standard, I will fix it later :) clueless
     instructions.push(Instruction::Comment("auto generated exit".to_string()));
@@ -194,17 +231,12 @@ fn generate_declaration(
         variable,
         expression,
     } = declaration;
-
-    if context.variables.contains_key(&variable) {
-        return Err(Asm64CodeGenerationError::VariableAlreadyDeclared { variable });
-    }
     let mut instructions = vec![];
     if let Some(expression) = expression {
-        instructions.extend(generate_expression(expression, &context.variables)?);
+        instructions.extend(generate_expression(expression, context)?);
     }
     instructions.push(Instruction::Push(Register64::Rax.to_string()));
-    context.stack_index += 8;
-    context.variables.insert(variable, context.stack_index);
+    context.insert_variable(variable)?;
     Ok(instructions)
 }
 
@@ -214,7 +246,7 @@ fn generate_statement(
 ) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
     match statement {
         Statement::Return { expression } => {
-            let expression = generate_expression(expression, &context.variables)?;
+            let expression = generate_expression(expression, context)?;
             // It is stupid that it moves RAX to RDI, but it is what it is :)
             Ok(expression
                 .iter()
@@ -227,14 +259,14 @@ fn generate_statement(
                 .cloned()
                 .collect())
         }
-        Statement::Expression(expression) => generate_expression(expression, &context.variables),
+        Statement::Expression(expression) => generate_expression(expression, context),
         Statement::Conditional {
             condition,
             then,
             otherwise,
         } => {
             let mut instructions = vec![];
-            instructions.extend(generate_expression(condition, &context.variables)?);
+            instructions.extend(generate_expression(condition, context)?);
             instructions.push(Instruction::Cmp(
                 "$0".to_string(),
                 Register64::Rax.to_string(),
@@ -264,13 +296,32 @@ fn generate_statement(
             instructions.push(Instruction::Label(end_label));
             Ok(instructions)
         }
+        Statement::Compound(blocks) => {
+            let mut inner_context = context.inner_scope();
+            let mut instructions = blocks
+                .into_iter()
+                .map(|block| generate_block(block, &mut inner_context))
+                .collect::<Result<Vec<Vec<Instruction>>, Asm64CodeGenerationError>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            let to_deallocate = inner_context.stack_size() - context.stack_size();
+            if to_deallocate > 0 {
+                instructions.push(Instruction::Add(
+                    format!("${}", to_deallocate),
+                    Register64::Rsp.to_string(),
+                ));
+            };
+
+            Ok(instructions)
+        }
     }
 }
 
 /// Generates expression instructions and places the result in RAX
 fn generate_expression(
     expression: Expression,
-    variables: &HashMap<String, u64>,
+    context: &Context,
 ) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
     let result = match expression {
         Expression::Integer(value) => Ok(vec![Instruction::Mov(
@@ -278,7 +329,7 @@ fn generate_expression(
             Register64::Rax.to_string(),
         )]),
         Expression::UnaryOperation { operator, operand } => {
-            let operand = generate_expression(*operand, variables)?;
+            let operand = generate_expression(*operand, context)?;
             let operator = generate_unary_operator(operator);
             Ok(operand.iter().chain(&operator).cloned().collect())
         }
@@ -286,23 +337,24 @@ fn generate_expression(
             operator,
             left,
             right,
-        } => generate_math_operator(operator, *left, *right, variables),
+        } => generate_math_operator(operator, *left, *right, context),
         Expression::LogicalOperation {
             operator,
             left,
             right,
-        } => generate_logical_operator(operator, *left, *right, variables),
+        } => generate_logical_operator(operator, *left, *right, context),
         Expression::RelationalOperation {
             operator,
             left,
             right,
-        } => generate_relational_operator(operator, *left, *right, variables),
+        } => generate_relational_operator(operator, *left, *right, context),
         Expression::Variable(name) => {
-            let offset = variables
+            let offset = context
+                .variables
                 .get(&name)
                 .ok_or(Asm64CodeGenerationError::VariableNotDeclared { variable: name })?;
             Ok(vec![Instruction::Mov(
-                format!("-{}(%rbp)", offset),
+                format!("-{}(%rbp)", offset.0),
                 Register64::Rax.to_string(),
             )])
         }
@@ -311,14 +363,16 @@ fn generate_expression(
             expression,
         } => {
             let mut instructions = vec![];
-            instructions.extend(generate_expression(*expression, variables)?);
+            instructions.extend(generate_expression(*expression, context)?);
             instructions.push(Instruction::Mov(
                 Register64::Rax.to_string(),
                 format!(
                     "-{}(%rbp)",
-                    variables
+                    context
+                        .variables
                         .get(&variable)
                         .ok_or(Asm64CodeGenerationError::VariableNotDeclared { variable })?
+                        .0
                 ),
             ));
             Ok(instructions)
@@ -328,7 +382,7 @@ fn generate_expression(
             then,
             otherwise,
         } => {
-            let mut instructions = generate_expression(*condition, variables)?;
+            let mut instructions = generate_expression(*condition, context)?;
             instructions.push(Instruction::Cmp(
                 "$0".to_string(),
                 Register64::Rax.to_string(),
@@ -342,10 +396,10 @@ fn generate_expression(
                 LABEL_COUNTER
             });
             instructions.push(Instruction::Je(else_label.clone()));
-            instructions.extend(generate_expression(*then, variables)?);
+            instructions.extend(generate_expression(*then, context)?);
             instructions.push(Instruction::Jmp(end_label.clone()));
             instructions.push(Instruction::Label(else_label));
-            instructions.extend(generate_expression(*otherwise, variables)?);
+            instructions.extend(generate_expression(*otherwise, context)?);
             instructions.push(Instruction::Label(end_label));
             Ok(instructions)
         }
@@ -358,7 +412,7 @@ fn generate_relational_operator(
     operator: RelationalOperator,
     left: Expression,
     right: Expression,
-    variables: &HashMap<String, u64>,
+    variables: &Context,
 ) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
     let mut instructions = vec![];
     // Generate left expression instructions and push the result to the stack
@@ -409,7 +463,7 @@ fn generate_logical_operator(
     operator: LogicalOperator,
     left: Expression,
     right: Expression,
-    variables: &HashMap<String, u64>,
+    variables: &Context,
 ) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
     let mut instructions = vec![];
     // Generate left expression instructions and store it in RAX
@@ -463,7 +517,7 @@ fn generate_math_operator(
     operator: Operator,
     left: Expression,
     right: Expression,
-    variables: &HashMap<String, u64>,
+    variables: &Context,
 ) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
     let mut instructions = vec![];
     let left = generate_expression(left, variables)?;
