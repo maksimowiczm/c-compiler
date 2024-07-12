@@ -3,7 +3,7 @@
 file=$1
 
 echo "Running gcc on $file"
-gcc -nostdlib -g -o program $file || { echo "Compilation failed"; exit 1; }
+gcc -g -o program $file || { echo "Compilation failed"; exit 1; }
 
 echo "Executing ./program"
 ./program

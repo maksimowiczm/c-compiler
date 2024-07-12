@@ -54,8 +54,8 @@ enum Instruction {
     /// mov src, dest
     #[display("mov {}, {}", _0, _1)]
     Mov(String, String),
-    #[display("syscall")]
-    Syscall,
+    // #[display("syscall")]
+    // Syscall,
     #[display(".globl {}", _0)]
     Globl(String),
     #[display("neg {}", _0)]
@@ -104,6 +104,8 @@ enum Instruction {
     Shr(String, String),
     #[display("// {}", _0)]
     Comment(String),
+    #[display("ret")]
+    Ret,
 }
 
 #[derive(Default)]
@@ -206,12 +208,9 @@ enum Register8 {
 }
 
 fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
-    let Function { body, .. } = function;
+    let Function { body, name, .. } = function;
     let mut context = Default::default();
-    let mut instructions = vec![
-        Instruction::Globl("_start".to_string()),
-        Instruction::Label("_start".to_string()),
-    ];
+    let mut instructions = vec![Instruction::Globl(name.clone()), Instruction::Label(name)];
     // insert prologue
     instructions.push(Instruction::Push(Register64::Rbp.to_string()));
     instructions.push(Instruction::Mov(
@@ -228,13 +227,9 @@ fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGe
     instructions.extend(context.epilogue());
     instructions.push(Instruction::Mov(
         "$0".to_string(),
-        Register64::Rdi.to_string(),
-    ));
-    instructions.push(Instruction::Mov(
-        "$60".to_string(),
         Register64::Rax.to_string(),
     ));
-    instructions.push(Instruction::Syscall);
+    instructions.push(Instruction::Ret);
     Ok(instructions)
 }
 
@@ -276,11 +271,7 @@ fn generate_statement(
             Ok(expression
                 .iter()
                 .chain(context.epilogue().iter())
-                .chain(&[
-                    Instruction::Mov(Register64::Rax.to_string(), Register64::Rdi.to_string()),
-                    Instruction::Mov("$60".to_string(), Register64::Rax.to_string()),
-                    Instruction::Syscall,
-                ])
+                .chain(&[Instruction::Ret])
                 .cloned()
                 .collect())
         }
