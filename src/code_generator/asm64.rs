@@ -224,8 +224,13 @@ fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGe
         body,
         name,
         arguments,
-        ..
+        declaration,
     } = function;
+
+    if declaration {
+        return Ok(vec![]);
+    }
+
     let mut context = Context::default();
     let mut instructions = vec![
         Instruction::Globl(name.clone()),
