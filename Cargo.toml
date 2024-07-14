@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 derive_more = { version = "1.0.0-beta.6", features = ["error", "display", "from_str"] }
+clap = { version = "4.5.9", features = ["derive"] }
 
 [dev-dependencies]
 rstest = "0.21.0"

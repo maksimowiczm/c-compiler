@@ -1,4 +1,5 @@
 pub mod asm64;
+pub mod ir;
 
 use crate::parser::Program;
 use io::Write;
