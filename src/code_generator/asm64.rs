@@ -109,6 +109,8 @@ enum Instruction {
     Ret,
     #[display("call {}", _0)]
     Call(String),
+    #[display("sub {}, {}", _0, _1)]
+    Sub(String, String),
 }
 
 #[derive(Default)]
@@ -225,21 +227,52 @@ fn generate_function(function: Function) -> Result<Vec<Instruction>, Asm64CodeGe
         ..
     } = function;
     let mut context = Context::default();
-    for (i, argument) in arguments.into_iter().enumerate() {
-        context
-            .variables
-            .insert(argument, (8 + 8 * (i as i64 + 1), true));
-    }
     let mut instructions = vec![
         Instruction::Globl(name.clone()),
         Instruction::Label(name.clone()),
     ];
+
     // insert prologue
     instructions.push(Instruction::Push(Register64::Rbp.to_string()));
     instructions.push(Instruction::Mov(
         Register64::Rsp.to_string(),
         Register64::Rbp.to_string(),
     ));
+
+    if arguments.len() > 6 {
+        return Err(Asm64CodeGenerationError::TooManyArguments);
+    }
+
+    instructions.push(Instruction::Comment(
+        "allocate space for arguments".to_string(),
+    ));
+    instructions.push(Instruction::Sub(
+        format!("${}", arguments.len() as i64 * 8),
+        Register64::Rsp.to_string(),
+    ));
+
+    let registers = [
+        Register64::Rdi,
+        Register64::Rsi,
+        Register64::Rdx,
+        Register64::Rcx,
+        Register64::R8,
+        Register64::R9,
+    ];
+
+    let iter = arguments.into_iter();
+
+    iter.take(6)
+        .zip(registers.iter())
+        .for_each(|(argument, register)| {
+            context.insert_variable(argument.clone()).unwrap();
+            let (bias, _) = context.variables.get(&argument).unwrap();
+
+            instructions.push(Instruction::Mov(
+                register.to_string(),
+                format!("{}(%rbp)", bias),
+            ));
+        });
 
     for block in body {
         instructions.extend(generate_block(block, &mut context)?);
