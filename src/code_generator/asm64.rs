@@ -25,11 +25,13 @@ pub enum Asm64CodeGenerationError {
     TooManyArguments,
 }
 
-impl<B> CodeGenerator<B, Asm64CodeGenerationError> for StringyAssembly64CodeGenerator
-where
-    B: Write,
-{
-    fn generate(self, node: Program, buffer: &mut B) -> Result<(), Asm64CodeGenerationError> {
+impl CodeGenerator for StringyAssembly64CodeGenerator {
+    type Err = Asm64CodeGenerationError;
+    fn generate(
+        self,
+        node: Program,
+        buffer: &mut impl Write,
+    ) -> Result<(), Asm64CodeGenerationError> {
         for function in node.functions {
             let instructions = generate_function(function)?;
             for instruction in instructions {
