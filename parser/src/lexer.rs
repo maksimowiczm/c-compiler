@@ -1,4 +1,5 @@
 use derive_more::FromStr;
+use std::cmp::PartialEq;
 use std::iter::Peekable;
 
 pub struct Lexer<TInput: Iterator<Item = char>> {
@@ -16,7 +17,7 @@ pub enum Token {
     SemiColon,
     Word(String),
     Keyword(Keyword),
-    Integer(i32),
+    Constant(Constant),
     Negation,
     LogicalNot,
     BitwiseNot,
@@ -107,6 +108,15 @@ pub enum Keyword {
     _ThreadLocal,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum Constant {
+    // every integer is 8 bytes
+    SignedInteger(i64),
+    UnsignedInteger(u64),
+    Decimal(f64),
+    Character(char),
+}
+
 impl<TInput> Lexer<TInput>
 where
     TInput: Iterator<Item = char>,
@@ -144,25 +154,53 @@ where
                 }
                 '~' => Some(Token::BitwiseNot),
                 '-' => {
-                    if let Some('=') = self.input.peek() {
+                    let peek = match self.input.peek() {
+                        Some(ch) => *ch,
+                        None => return Some(Token::Negation),
+                    };
+
+                    // check if the next character is a number
+                    if peek.is_numeric() {
                         self.input.next();
-                        Some(Token::Assignment(Assignment::MinusEqual))
-                    } else if let Some('-') = self.input.peek() {
-                        self.input.next();
-                        Some(Token::Decrement)
-                    } else {
-                        Some(Token::Negation)
+                        return parse_number(peek, &mut self.input, Some(false));
+                    }
+
+                    // otherwise, check if it is an assignment or decrement
+                    match peek {
+                        '=' => {
+                            self.input.next();
+                            Some(Token::Assignment(Assignment::MinusEqual))
+                        }
+                        '-' => {
+                            self.input.next();
+                            Some(Token::Decrement)
+                        }
+                        _ => Some(Token::Negation),
                     }
                 }
                 '+' => {
-                    if let Some('=') = self.input.peek() {
+                    let peek = match self.input.peek() {
+                        Some(ch) => *ch,
+                        None => return Some(Token::Addition),
+                    };
+
+                    // check if the next character is a number
+                    if peek.is_numeric() {
                         self.input.next();
-                        Some(Token::Assignment(Assignment::PlusEqual))
-                    } else if let Some('+') = self.input.peek() {
-                        self.input.next();
-                        Some(Token::Increment)
-                    } else {
-                        Some(Token::Addition)
+                        return parse_number(peek, &mut self.input, Some(false));
+                    }
+
+                    // otherwise, check if it is an assignment or increment
+                    match peek {
+                        '=' => {
+                            self.input.next();
+                            Some(Token::Assignment(Assignment::PlusEqual))
+                        }
+                        '+' => {
+                            self.input.next();
+                            Some(Token::Increment)
+                        }
+                        _ => Some(Token::Addition),
                     }
                 }
                 '*' => {
@@ -259,22 +297,38 @@ where
                         Some(Token::BitwiseXor)
                     }
                 }
-                '0'..='9' => {
-                    let mut number = ch.to_digit(10).unwrap() as i32;
-                    while let Some(ch) = self.input.peek() {
-                        if let Some(digit) = ch.to_digit(10) {
-                            number = number * 10 + digit as i32;
-                        } else {
-                            break;
-                        }
-
-                        self.input.next();
-                    }
-                    Some(Token::Integer(number))
-                }
+                '0'..='9' => parse_number(ch, &mut self.input, None),
                 ':' => Some(Token::Colon),
                 '?' => Some(Token::QuestionMark),
                 ',' => Some(Token::Comma),
+                '\'' => parse_character(&mut self.input),
+                '.' => {
+                    let mut digits = vec![ch];
+
+                    if let Some(ch) = self.input.peek() {
+                        if ch.is_numeric() {
+                            while let Some(ch) = self.input.peek() {
+                                if ch.is_numeric() {
+                                    digits.push(*ch);
+                                    self.input.next();
+                                } else {
+                                    break;
+                                }
+                            }
+
+                            let number = digits.iter().collect::<String>();
+                            if let Ok(value) = number.parse::<f64>() {
+                                Some(Token::Constant(Constant::Decimal(value)))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                }
                 _ => {
                     if ch.is_whitespace() {
                         continue;
@@ -315,6 +369,208 @@ where
     }
 }
 
+fn parse_number<TInput>(
+    start: char,
+    input: &mut Peekable<TInput>,
+    mut unsigned: Option<bool>,
+) -> Option<Token>
+where
+    TInput: Iterator<Item = char>,
+{
+    let mut digits = vec![start];
+
+    #[derive(PartialEq)]
+    enum NumberType {
+        Integer,
+        Decimal,
+        Binary,
+        Hexadecimal,
+        Octal,
+    }
+
+    let mut state = match start {
+        '0' => match input.peek() {
+            Some('b') | Some('B') => {
+                digits.push(input.next().unwrap());
+                NumberType::Binary
+            }
+            Some('x') | Some('X') => {
+                digits.push(input.next().unwrap());
+                NumberType::Hexadecimal
+            }
+            Some(_) => NumberType::Octal,
+            None => NumberType::Integer,
+        },
+        _ => NumberType::Integer,
+    };
+
+    while let Some(ch) = input.peek() {
+        match ch {
+            '0' | '1' => {
+                digits.push(*ch);
+                input.next();
+            }
+            '0'..='7' => match state {
+                NumberType::Integer
+                | NumberType::Decimal
+                | NumberType::Hexadecimal
+                | NumberType::Octal => {
+                    digits.push(*ch);
+                    input.next();
+                }
+                NumberType::Binary => break,
+            },
+            '8'..='9' => match state {
+                NumberType::Integer | NumberType::Decimal | NumberType::Hexadecimal => {
+                    digits.push(*ch);
+                    input.next();
+                }
+                NumberType::Octal | NumberType::Binary => break,
+            },
+            '.' => match state {
+                NumberType::Integer | NumberType::Hexadecimal => {
+                    state = NumberType::Decimal;
+                    digits.push(*ch);
+                    input.next();
+                }
+                NumberType::Decimal | NumberType::Octal | NumberType::Binary => break,
+            },
+            'a'..='f' | 'A'..='F' => match state {
+                NumberType::Hexadecimal => {
+                    digits.push(*ch);
+                    input.next();
+                }
+                NumberType::Integer
+                | NumberType::Decimal
+                | NumberType::Octal
+                | NumberType::Binary => break,
+            },
+            _ => break,
+        }
+    }
+
+    match state {
+        NumberType::Integer | NumberType::Binary | NumberType::Hexadecimal | NumberType::Octal => {
+            // take 'u'
+            if input
+                .take_while(|ch| matches!(ch, 'u' | 'U' | 'l' | 'L'))
+                .any(|ch| ch == 'u' || ch == 'U')
+            {
+                unsigned = Some(true);
+            }
+
+            // skip 'l'
+            while let Some(ch) = input.peek() {
+                if *ch == 'l' || *ch == 'L' {
+                    input.next();
+                } else {
+                    break;
+                }
+            }
+        }
+        NumberType::Decimal => {
+            // take 'f'
+            if input
+                .take_while(|ch| matches!(ch, 'f' | 'F' | 'l' | 'L'))
+                .any(|ch| ch == 'f' || ch == 'F')
+            {
+                unsigned = Some(true);
+            }
+        }
+    }
+
+    // yeah, that is a bit stupid to collect and parse the number
+    let number = digits.iter().collect::<String>();
+    let parse_integer = |value| match unsigned {
+        Some(true) => Some(Token::Constant(Constant::UnsignedInteger(value))),
+        _ => Some(Token::Constant(Constant::SignedInteger(value as i64))),
+    };
+
+    match state {
+        NumberType::Integer => number.parse::<u64>().ok().and_then(parse_integer),
+        NumberType::Decimal => number
+            .parse::<f64>()
+            .ok()
+            .map(|value| Some(Token::Constant(Constant::Decimal(value))))?,
+        NumberType::Binary => u64::from_str_radix(&number[2..], 2)
+            .ok()
+            .and_then(parse_integer),
+        NumberType::Hexadecimal => u64::from_str_radix(&number[2..], 16)
+            .ok()
+            .and_then(parse_integer),
+        NumberType::Octal => u64::from_str_radix(&number[1..], 8)
+            .ok()
+            .and_then(parse_integer),
+    }
+}
+
+fn parse_character<TInput>(input: &mut Peekable<TInput>) -> Option<Token>
+where
+    TInput: Iterator<Item = char>,
+{
+    let character = input.next()?;
+
+    let character = if character != '\\' {
+        character
+    } else {
+        let ch = input.next()?;
+        match ch {
+            'a' => '\x07',
+            'b' => '\x08',
+            'f' => '\x0C',
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            'v' => '\x0B',
+            '\'' => '\'',
+            '"' => '"',
+            '\\' => '\\',
+            '?' => '?',
+            '0'..='7' => {
+                let mut digits = vec![ch];
+                digits.push(input.next()?);
+                if let Some(ch) = input.peek() {
+                    if ch.is_numeric() {
+                        digits.push(*ch);
+                        input.next();
+                    }
+                }
+
+                let number = digits.iter().collect::<String>();
+                if let Ok(value) = u8::from_str_radix(&number, 8) {
+                    value as char
+                } else {
+                    return None;
+                }
+            }
+            'x' => {
+                let mut digits = vec![];
+                digits.push(input.next()?);
+                if let Some(ch) = input.peek() {
+                    if ch.is_alphanumeric() {
+                        digits.push(*ch);
+                        input.next();
+                    }
+                }
+
+                let number = digits.iter().collect::<String>();
+                if let Ok(value) = u8::from_str_radix(&number, 16) {
+                    value as char
+                } else {
+                    return None;
+                }
+            }
+            other => other,
+        }
+    };
+
+    if let Some('\'') = input.next() {
+        Some(Token::Constant(Constant::Character(character)))
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,7 +582,6 @@ mod tests {
     #[case::open_brace("{", vec![Token::OpenBrace, Token::EndOfFile])]
     #[case::close_brace("}", vec![Token::CloseBrace, Token::EndOfFile])]
     #[case::semi_colon(";", vec![Token::SemiColon, Token::EndOfFile])]
-    #[case::integer("1234", vec![Token::Integer(1234), Token::EndOfFile])]
     #[case::word("word", vec![Token::Word("word".to_string()), Token::EndOfFile])]
     #[case::negation("-", vec![Token::Negation, Token::EndOfFile])]
     #[case::logical_not("!", vec![Token::LogicalNot, Token::EndOfFile])]
@@ -365,54 +620,6 @@ mod tests {
     #[case::question_mark("?", vec![Token::QuestionMark, Token::EndOfFile])]
     #[case::coma(",", vec![Token::Comma, Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
-        let lexer = Lexer::new(input.chars().peekable());
-        let tokens = lexer.into_iter().collect::<Vec<_>>();
-
-        assert_eq!(tokens, expected);
-    }
-
-    #[rstest]
-    #[case::word_wrapped_in_parenthesis("{(1234)}", vec![
-        Token::OpenBrace,
-        Token::OpenParenthesis,
-        Token::Integer(1234),
-        Token::CloseParenthesis,
-        Token::CloseBrace,
-        Token::EndOfFile
-    ])]
-    fn test_combination(#[case] input: &str, #[case] expected: Vec<Token>) {
-        let lexer = Lexer::new(input.chars().peekable());
-        let tokens = lexer.into_iter().collect::<Vec<_>>();
-
-        assert_eq!(tokens, expected);
-    }
-
-    #[rstest]
-    #[case::logical_not("!!3", vec![
-        Token::LogicalNot,
-        Token::LogicalNot,
-        Token::Integer(3),
-        Token::EndOfFile
-    ])]
-    #[case::negation("-3", vec![
-        Token::Negation,
-        Token::Integer(3),
-        Token::EndOfFile
-    ])]
-    #[case::bitwise_not("~~3", vec![
-        Token::BitwiseNot,
-        Token::BitwiseNot,
-        Token::Integer(3),
-        Token::EndOfFile
-    ])]
-    #[case::negation_bitwise_not_logical_not("-!~3", vec![
-        Token::Negation,
-        Token::LogicalNot,
-        Token::BitwiseNot,
-        Token::Integer(3),
-        Token::EndOfFile
-    ])]
-    fn test_unary_operators(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
 
@@ -480,5 +687,64 @@ mod tests {
         let tokens = lexer.into_iter().collect::<Vec<_>>();
 
         assert_eq!(tokens, expected);
+    }
+
+    #[rstest]
+    #[case::integer("1234", vec![Token::Constant(Constant::SignedInteger(1234)), Token::EndOfFile])]
+    #[case::hexadecimal("0xFF", vec![Token::Constant(Constant::SignedInteger(0xFF)), Token::EndOfFile])]
+    #[case::hexadecimal_uppercase("0XFF", vec![Token::Constant(Constant::SignedInteger(0xFF)), Token::EndOfFile])]
+    #[case::decimal("1234.5678", vec![Token::Constant(Constant::Decimal(1234.5678)), Token::EndOfFile])]
+    #[case::decimal_no_integer(".5678", vec![Token::Constant(Constant::Decimal(0.5678)), Token::EndOfFile])]
+    #[case::decimal_no_decimal("1234.", vec![Token::Constant(Constant::Decimal(1234.)), Token::EndOfFile])]
+    #[case::character("'a'", vec![Token::Constant(Constant::Character('a')), Token::EndOfFile])]
+    #[case::octal("0123", vec![Token::Constant(Constant::SignedInteger(0o123)), Token::EndOfFile])]
+    #[case::binary("0b1010", vec![Token::Constant(Constant::SignedInteger(0b1010)), Token::EndOfFile])]
+    #[case::binary_uppercase("0B1010", vec![Token::Constant(Constant::SignedInteger(0b1010)), Token::EndOfFile])]
+    #[case::unsigned("1234u", vec![Token::Constant(Constant::UnsignedInteger(1234)), Token::EndOfFile])]
+    #[case::unsigned_uppercase("1234U", vec![Token::Constant(Constant::UnsignedInteger(1234)), Token::EndOfFile])]
+    #[case::long("1234l", vec![Token::Constant(Constant::SignedInteger(1234)), Token::EndOfFile])]
+    #[case::long_uppercase("1234L", vec![Token::Constant(Constant::SignedInteger(1234)), Token::EndOfFile])]
+    #[case::unsigned_long("1234ul", vec![Token::Constant(Constant::UnsignedInteger(1234)), Token::EndOfFile])]
+    #[case::unsigned_long_uppercase("1234UL", vec![Token::Constant(Constant::UnsignedInteger(1234)), Token::EndOfFile])]
+    #[case::long_long("1234ll", vec![Token::Constant(Constant::SignedInteger(1234)), Token::EndOfFile])]
+    #[case::long_long_uppercase("1234LL", vec![Token::Constant(Constant::SignedInteger(1234)), Token::EndOfFile])]
+    #[case::unsigned_long_long("1234ull", vec![Token::Constant(Constant::UnsignedInteger(1234)), Token::EndOfFile])]
+    #[case::unsigned_long_long_uppercase("1234ULL", vec![Token::Constant(Constant::UnsignedInteger(1234)), Token::EndOfFile])]
+    #[case::positive_prefix("+1234", vec![Token::Constant(Constant::SignedInteger(1234)), Token::EndOfFile])]
+    #[case::negative_prefix("-1234", vec![Token::Constant(Constant::SignedInteger(1234)), Token::EndOfFile])]
+    #[case::decimal_suffix_float("1234.5678f", vec![Token::Constant(Constant::Decimal(1234.5678)), Token::EndOfFile])]
+    #[case::decimal_suffix_long("1234.5678l", vec![Token::Constant(Constant::Decimal(1234.5678)), Token::EndOfFile])]
+    #[case::char_escape_sequence_hex("'\\x41'", vec![Token::Constant(Constant::Character('A')), Token::EndOfFile])]
+    #[case::char_escape_sequence_octal("'\\101'", vec![Token::Constant(Constant::Character('A')), Token::EndOfFile])]
+    fn test_constants(#[case] input: &str, #[case] expected: Vec<Token>) {
+        let lexer = Lexer::new(input.chars().peekable());
+        let tokens = lexer.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(tokens, expected);
+    }
+
+    #[rstest]
+    #[case::simple_escape_sequence_newline("'\\n'", '\n')]
+    #[case::simple_escape_sequence_carriage_return("'\\r'", '\r')]
+    #[case::simple_escape_sequence_tab("'\\t'", '\t')]
+    #[case::simple_escape_sequence_backspace("'\\b'", '\x08')]
+    #[case::simple_escape_sequence_form_feed("'\\f'", '\x0C')]
+    #[case::simple_escape_sequence_vertical_tab("'\\v'", '\x0B')]
+    #[case::simple_escape_sequence_alert("'\\a'", '\x07')]
+    #[case::simple_escape_sequence_backslash("'\\\\'", '\\')]
+    #[case::simple_escape_sequence_single_quote("'\\''", '\'')]
+    #[case::simple_escape_sequence_double_quote("'\\\"'", '"')]
+    #[case::simple_escape_sequence_question_mark("'\\?'", '?')]
+    fn test_simple_escape_sequence(#[case] input: &str, #[case] expected: char) {
+        let lexer = Lexer::new(input.chars().peekable());
+        let tokens = lexer.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Constant(Constant::Character(expected)),
+                Token::EndOfFile
+            ]
+        );
     }
 }

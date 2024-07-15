@@ -1,6 +1,6 @@
 use crate::code_generator::CodeGenerator;
-use std::io::Write;
 use parser::parser::Program;
+use std::io::Write;
 
 pub(crate) struct IR;
 

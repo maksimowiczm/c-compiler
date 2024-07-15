@@ -1,4 +1,4 @@
-use crate::lexer::{Assignment, Keyword, Token};
+use crate::lexer::{Assignment, Constant, Keyword, Token};
 use derive_more::{Display, Error};
 use std::iter::Peekable;
 
@@ -359,7 +359,7 @@ impl Statement {
 
         match peek {
             Token::Word(_)
-            | Token::Integer(_)
+            | Token::Constant(_)
             | Token::Increment
             | Token::Decrement
             | Token::Negation
@@ -1027,7 +1027,7 @@ impl Expression {
 
                 Ok(Expression::Variable(id))
             }
-            Token::Integer(value) => Ok(Expression::Integer(value as u64)),
+            Token::Constant(Constant::UnsignedInteger(value)) => Ok(Expression::Integer(value)),
             Token::OpenParenthesis => {
                 let node = Expression::parse(tokens)?;
                 expect_token(tokens, Token::CloseParenthesis)?;
@@ -1098,7 +1098,10 @@ impl Expression {
             }
             _ => Err(ParserError::UnexpectedToken {
                 unexpected: token,
-                expected: vec![Token::Integer(0), Token::OpenParenthesis],
+                expected: vec![
+                    Token::Constant(Constant::UnsignedInteger(0)),
+                    Token::OpenParenthesis,
+                ],
                 near_tokens: tokens.take(6).collect(),
             }),
         }
@@ -1112,11 +1115,11 @@ mod tests {
 
     #[rstest]
     #[case::return_integer(
-        &[Token::Keyword(Keyword::Return), Token::Integer(1234), Token::SemiColon],
+        &[Token::Keyword(Keyword::Return), Token::Constant(Constant::UnsignedInteger(1234)), Token::SemiColon],
         Statement::Return { expression: Expression::Integer(1234) }
     )]
     #[case::expression(
-        &[Token::Integer(1), Token::SemiColon],
+        &[Token::Constant(Constant::UnsignedInteger(1)), Token::SemiColon],
         Statement::Expression(Expression::Integer(1))
     )]
     #[case::null_expression(
@@ -1148,7 +1151,7 @@ mod tests {
             Token::CloseBrace,
             Token::Keyword(Keyword::While),
             Token::OpenParenthesis,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::CloseParenthesis,
             Token::SemiColon,
         ],
@@ -1161,7 +1164,7 @@ mod tests {
         &[
             Token::Keyword(Keyword::While),
             Token::OpenParenthesis,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::CloseParenthesis,
             Token::OpenBrace,
             Token::Keyword(Keyword::Continue),
@@ -1177,11 +1180,11 @@ mod tests {
         &[
             Token::Keyword(Keyword::For),
             Token::OpenParenthesis,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::SemiColon,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
             Token::CloseParenthesis,
             Token::OpenBrace,
             Token::Keyword(Keyword::Continue),
@@ -1202,9 +1205,9 @@ mod tests {
             Token::Keyword(Keyword::Int),
             Token::Word("variable".to_string()),
             Token::SemiColon,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::SemiColon,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
             Token::CloseParenthesis,
             Token::OpenBrace,
             Token::Keyword(Keyword::Continue),
@@ -1260,31 +1263,31 @@ mod tests {
     }
 
     #[rstest]
-    #[case::integer(&[Token::Integer(1234)], Expression::Integer(1234))]
+    #[case::integer(&[Token::Constant(Constant::UnsignedInteger(1234))], Expression::Integer(1234))]
     // negation
     #[case::integer_negation(
-        &[Token::Negation, Token::Integer(1234)],
+        &[Token::Negation, Token::Constant(Constant::UnsignedInteger(1234))],
         Expression::UnaryOperation {
             operator: UnaryOperator::Negation,
             operand: Box::new(Expression::Integer(1234))
         }
     )]
     #[case::bitwise_not_integer(
-        &[Token::BitwiseNot, Token::Integer(1234)],
+        &[Token::BitwiseNot, Token::Constant(Constant::UnsignedInteger(1234))],
         Expression::UnaryOperation {
             operator: UnaryOperator::BitwiseNot,
             operand: Box::new(Expression::Integer(1234))
         }
     )]
     #[case::logical_not_integer(
-        &[Token::LogicalNot, Token::Integer(1234)],
+        &[Token::LogicalNot, Token::Constant(Constant::UnsignedInteger(1234))],
         Expression::UnaryOperation {
             operator: UnaryOperator::LogicalNot,
             operand: Box::new(Expression::Integer(1234))
         }
     )]
     #[case::negation_bitwise_not_logical_not_integer(
-        &[Token::Negation, Token::BitwiseNot, Token::LogicalNot, Token::Integer(1234)],
+        &[Token::Negation, Token::BitwiseNot, Token::LogicalNot, Token::Constant(Constant::UnsignedInteger(1234))],
         Expression::UnaryOperation {
             operator: UnaryOperator::Negation,
             operand: Box::new(Expression::UnaryOperation {
@@ -1298,9 +1301,9 @@ mod tests {
     ]
     #[case::addition(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::Addition,
@@ -1310,9 +1313,9 @@ mod tests {
     )]
     #[case::subtraction(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Negation,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::Addition,
@@ -1325,9 +1328,9 @@ mod tests {
     )]
     #[case::multiplication(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Multiplication,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::Multiplication,
@@ -1337,9 +1340,9 @@ mod tests {
     )]
     #[case::division(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Division,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::Division,
@@ -1350,11 +1353,11 @@ mod tests {
     // operation combination
     #[case::addition_multiplication(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Multiplication,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
         ],
         Expression::Operation {
             operator: Operator::Addition,
@@ -1368,11 +1371,11 @@ mod tests {
     )]
     #[case::multiplication_addition(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Multiplication,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Addition,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
         ],
         Expression::Operation {
             operator: Operator::Addition,
@@ -1386,11 +1389,11 @@ mod tests {
     )]
     #[case::multiplication_division(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Multiplication,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Division,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
         ],
         Expression::Operation {
             operator: Operator::Multiplication,
@@ -1404,11 +1407,11 @@ mod tests {
     )]
     #[case::division_multiplication(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Division,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Multiplication,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
         ],
         Expression::Operation {
             operator: Operator::Division,
@@ -1422,13 +1425,13 @@ mod tests {
     )]
     #[case::addition_multiplication_division(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Multiplication,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
             Token::Division,
-            Token::Integer(4),
+            Token::Constant(Constant::UnsignedInteger(4)),
         ],
         Expression::Operation {
             operator: Operator::Addition,
@@ -1446,13 +1449,13 @@ mod tests {
     )]
     #[case::addition_division_multiplication(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Division,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
             Token::Multiplication,
-            Token::Integer(4),
+            Token::Constant(Constant::UnsignedInteger(4)),
         ],
         Expression::Operation {
             operator: Operator::Addition,
@@ -1470,13 +1473,13 @@ mod tests {
     )]
     #[case::multiplication_addition_division(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Multiplication,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Addition,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
             Token::Division,
-            Token::Integer(4),
+            Token::Constant(Constant::UnsignedInteger(4)),
         ],
         Expression::Operation {
             operator: Operator::Addition,
@@ -1494,13 +1497,13 @@ mod tests {
     )]
     #[case::multiplication_division_addition(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Multiplication,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Division,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
             Token::Addition,
-            Token::Integer(4),
+            Token::Constant(Constant::UnsignedInteger(4)),
         ],
         Expression::Operation {
             operator: Operator::Addition,
@@ -1520,7 +1523,7 @@ mod tests {
     #[case::parenthesis(
         &[
             Token::OpenParenthesis,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::CloseParenthesis,
         ],
         Expression::Integer(1)
@@ -1528,9 +1531,9 @@ mod tests {
     #[case::parenthesis_addition(
         &[
             Token::OpenParenthesis,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::CloseParenthesis,
         ],
         Expression::Operation {
@@ -1542,12 +1545,12 @@ mod tests {
     #[case::parenthesis_addition_multiplication(
         &[
             Token::OpenParenthesis,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::CloseParenthesis,
             Token::Multiplication,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
         ],
         Expression::Operation {
             operator: Operator::Multiplication,
@@ -1561,10 +1564,10 @@ mod tests {
     )]
     #[case::double_negation(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Negation,
             Token::Negation,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::Addition,
@@ -1582,10 +1585,10 @@ mod tests {
         &[
             Token::BitwiseNot,
             Token::OpenParenthesis,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Negation,
             Token::LogicalNot,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::CloseParenthesis,
         ],
         Expression::UnaryOperation {
@@ -1606,16 +1609,16 @@ mod tests {
     // 1 + ~(2 == 3) + 1
     #[case::addition_bitwise_not_parenthesis_equal(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
             Token::BitwiseNot,
             Token::OpenParenthesis,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Equal,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
             Token::CloseParenthesis,
             Token::Addition,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
         ],
         Expression::Operation {
             operator: Operator::Addition,
@@ -1640,9 +1643,9 @@ mod tests {
     )]
     #[case::bitwise_xor(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::BitwiseXor,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::BitwiseXor,
@@ -1652,9 +1655,9 @@ mod tests {
     )]
     #[case::bitwise_and(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::BitwiseAnd,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::BitwiseAnd,
@@ -1664,9 +1667,9 @@ mod tests {
     )]
     #[case::bitwise_or(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::BitwiseOr,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::BitwiseOr,
@@ -1676,9 +1679,9 @@ mod tests {
     )]
     #[case::shift_left(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::ShiftLeft,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::ShiftLeft,
@@ -1688,9 +1691,9 @@ mod tests {
     )]
     #[case::shift_right(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::ShiftRight,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::ShiftRight,
@@ -1700,9 +1703,9 @@ mod tests {
     )]
     #[case::modulo(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Modulo,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
             operator: Operator::Modulo,
@@ -1805,11 +1808,11 @@ mod tests {
     )]
     #[case::ternary(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::QuestionMark,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Colon,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
         ],
         Expression::Ternary {
             condition: Box::new(Expression::Integer(1)),
@@ -1827,9 +1830,9 @@ mod tests {
     #[rstest]
     #[case::logical_and(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::LogicalAnd,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::LogicalOperation {
             operator: LogicalOperator::And,
@@ -1839,9 +1842,9 @@ mod tests {
     )]
     #[case::logical_or(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::LogicalOr,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::LogicalOperation {
             operator: LogicalOperator::Or,
@@ -1859,9 +1862,9 @@ mod tests {
     #[rstest]
     #[case::equal(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Equal,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::RelationalOperation {
             operator: RelationalOperator::Equal,
@@ -1871,9 +1874,9 @@ mod tests {
     )]
     #[case::not_equal(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::NotEqual,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::RelationalOperation {
             operator: RelationalOperator::NotEqual,
@@ -1883,13 +1886,13 @@ mod tests {
     )]
     #[case::equal_combined(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Equal,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
             Token::Multiplication,
-            Token::Integer(4),
+            Token::Constant(Constant::UnsignedInteger(4)),
         ],
         Expression::RelationalOperation {
             operator: RelationalOperator::Equal,
@@ -1915,9 +1918,9 @@ mod tests {
     #[rstest]
     #[case::less_than(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::LessThan,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::RelationalOperation {
             operator: RelationalOperator::LessThan,
@@ -1927,9 +1930,9 @@ mod tests {
     )]
     #[case::less_than_or_equal(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::LessThanOrEqual,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::RelationalOperation {
             operator: RelationalOperator::LessThanOrEqual,
@@ -1939,9 +1942,9 @@ mod tests {
     )]
     #[case::greater_than(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::GreaterThan,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::RelationalOperation {
             operator: RelationalOperator::GreaterThan,
@@ -1951,9 +1954,9 @@ mod tests {
     )]
     #[case::greater_than_or_equal(
         &[
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::GreaterThanOrEqual,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::RelationalOperation {
             operator: RelationalOperator::GreaterThanOrEqual,
@@ -1977,7 +1980,7 @@ mod tests {
             Token::CloseParenthesis,
             Token::OpenBrace,
             Token::Keyword(Keyword::Return),
-            Token::Integer(1234),
+            Token::Constant(Constant::UnsignedInteger(1234)),
             Token::SemiColon,
             Token::CloseBrace
         ],
@@ -2004,10 +2007,10 @@ mod tests {
             Token::Assignment(Assignment::Equal),
             Token::Word("variable".to_string()),
             Token::Addition,
-            Token::Integer(1234),
+            Token::Constant(Constant::UnsignedInteger(1234)),
             Token::SemiColon,
             Token::Keyword(Keyword::Return),
-            Token::Integer(1234),
+            Token::Constant(Constant::UnsignedInteger(1234)),
             Token::SemiColon,
             Token::CloseBrace
         ],
@@ -2053,7 +2056,7 @@ mod tests {
             Token::Keyword(Keyword::Int),
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::Equal),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon
         ],
         Declaration {
@@ -2066,9 +2069,9 @@ mod tests {
             Token::Keyword(Keyword::Int),
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::Equal),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::SemiColon
         ],
         Declaration {
@@ -2092,7 +2095,7 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::Equal),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon
         ],
         Expression::Assignment {
@@ -2104,9 +2107,9 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::Equal),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::SemiColon
         ],
         Expression::Assignment {
@@ -2125,7 +2128,7 @@ mod tests {
             Token::OpenParenthesis,
             Token::Word("other".to_string()),
             Token::Assignment(Assignment::Equal),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::CloseParenthesis,
             Token::SemiColon
         ],
@@ -2141,7 +2144,7 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::PlusEqual),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon
         ],
         Expression::Assignment {
@@ -2157,7 +2160,7 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::MinusEqual),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon
         ],
         Expression::Assignment {
@@ -2176,7 +2179,7 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::MultiplyEqual),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon
         ],
         Expression::Assignment {
@@ -2192,7 +2195,7 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::DivideEqual),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon
         ],
         Expression::Assignment {
@@ -2208,7 +2211,7 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::ShiftLeftEqual),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon
         ],
         Expression::Assignment {
@@ -2224,7 +2227,7 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::ShiftRightEqual),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon
         ],
         Expression::Assignment {
@@ -2240,7 +2243,7 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::ModuloEqual),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon
         ],
         Expression::Assignment {
@@ -2256,7 +2259,7 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::Assignment(Assignment::XorEqual),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon
         ],
         Expression::Assignment {
@@ -2280,10 +2283,10 @@ mod tests {
         &[
             Token::Keyword(Keyword::If),
             Token::OpenParenthesis,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::CloseParenthesis,
             Token::Keyword(Keyword::Return),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon,
         ],
         Statement::Conditional{
@@ -2296,14 +2299,14 @@ mod tests {
         &[
             Token::Keyword(Keyword::If),
             Token::OpenParenthesis,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::CloseParenthesis,
             Token::Keyword(Keyword::Return),
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::SemiColon,
             Token::Keyword(Keyword::Else),
             Token::Keyword(Keyword::Return),
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::SemiColon,
         ],
         Statement::Conditional{
@@ -2324,13 +2327,13 @@ mod tests {
         &[
             Token::Word("variable".to_string()),
             Token::QuestionMark,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::Colon,
             Token::Word("other".to_string()),
             Token::QuestionMark,
-            Token::Integer(2),
+            Token::Constant(Constant::UnsignedInteger(2)),
             Token::Colon,
-            Token::Integer(3),
+            Token::Constant(Constant::UnsignedInteger(3)),
         ],
         Expression::Ternary {
             condition: Box::new(Expression::Variable("variable".to_string())),
@@ -2399,7 +2402,7 @@ mod tests {
             Token::OpenParenthesis,
             Token::Word("variable".to_string()),
             Token::Comma,
-            Token::Integer(1),
+            Token::Constant(Constant::UnsignedInteger(1)),
             Token::CloseParenthesis,
         ],
         Expression::Call {
