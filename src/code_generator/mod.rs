@@ -1,8 +1,8 @@
 pub mod asm64;
 pub mod ir;
 
-use crate::parser::Program;
 use io::Write;
+use parser::parser::Program;
 use std::io;
 
 pub trait CodeGenerator {

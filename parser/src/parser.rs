@@ -34,15 +34,15 @@ pub enum ParserError {
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Program {
-    pub(crate) functions: Vec<Function>,
+    pub functions: Vec<Function>,
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Function {
-    pub(crate) declaration: bool,
-    pub(crate) name: String,
-    pub(crate) body: Vec<Block>,
-    pub(crate) arguments: Vec<String>,
+    pub declaration: bool,
+    pub name: String,
+    pub body: Vec<Block>,
+    pub arguments: Vec<String>,
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
@@ -53,8 +53,8 @@ pub enum Block {
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Declaration {
-    pub(crate) variable: String,
-    pub(crate) expression: Option<Expression>,
+    pub variable: String,
+    pub expression: Option<Expression>,
 }
 
 #[cfg_attr(test, derive(Debug, PartialEq))]

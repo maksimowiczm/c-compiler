@@ -1,13 +1,12 @@
 use crate::code_generator::CodeGenerator;
-use crate::parser::Parser as CodeParser;
 use clap::{Parser, Subcommand};
 use code_generator::asm64::StringyAssembly64CodeGenerator;
 use code_generator::ir::IR;
+use parser::lexer::Lexer;
+use parser::parser::Parser as CodeParser;
 use std::error::Error;
 
 mod code_generator;
-mod lexer;
-mod parser;
 
 #[derive(Parser)]
 struct Args {
@@ -34,7 +33,7 @@ impl SubCommand {
     fn run(&self) -> Result<Vec<u8>, Box<dyn Error>> {
         let path = self.path();
         let source = std::fs::read_to_string(&path).expect("could not read file");
-        let lexer = lexer::Lexer::new(source.chars().peekable());
+        let lexer = Lexer::new(source.chars().peekable());
         let tokens = lexer.into_iter().peekable();
         let ast = CodeParser::parse(tokens).expect("could not parse program");
         let mut buffer = Vec::new();

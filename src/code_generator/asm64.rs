@@ -1,11 +1,8 @@
 use crate::code_generator::CodeGenerator;
-use crate::parser::{
-    Block, Declaration, Expression, Function, LogicalOperator, Operator, Program,
-    RelationalOperator, Statement, UnaryOperator,
-};
 use derive_more::{Display, Error};
 use std::collections::HashMap;
 use std::io::Write;
+use parser::parser::{Block, Declaration, Expression, Function, LogicalOperator, Operator, Program, RelationalOperator, Statement, UnaryOperator};
 
 pub struct StringyAssembly64CodeGenerator;
 
