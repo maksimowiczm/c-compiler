@@ -62,15 +62,49 @@ pub enum Assignment {
 
 #[derive(Debug, PartialEq, Clone, FromStr)]
 pub enum Keyword {
-    Return,
-    Int,
-    If,
-    Else,
-    For,
-    While,
-    Do,
-    Continue,
+    Auto,
     Break,
+    Case,
+    Char,
+    Const,
+    Continue,
+    Default,
+    Do,
+    Double,
+    Else,
+    Enum,
+    Extern,
+    Float,
+    For,
+    Goto,
+    If,
+    Inline,
+    Int,
+    Long,
+    Register,
+    Restrict,
+    Return,
+    Short,
+    Signed,
+    Sizeof,
+    Static,
+    Struct,
+    Switch,
+    Typedef,
+    Union,
+    Unsigned,
+    Void,
+    Volatile,
+    While,
+    _Alignof,
+    _Atomic,
+    _Bool,
+    _Complex,
+    _Generic,
+    _Imaginary,
+    _Noreturn,
+    _StaticAssert,
+    _ThreadLocal,
 }
 
 impl<TInput> Lexer<TInput>
@@ -329,13 +363,6 @@ mod tests {
     #[case::decrement("--", vec![Token::Decrement, Token::EndOfFile])]
     #[case::colon(":", vec![Token::Colon, Token::EndOfFile])]
     #[case::question_mark("?", vec![Token::QuestionMark, Token::EndOfFile])]
-    #[case::if_keyword("if", vec![Token::Keyword(Keyword::If), Token::EndOfFile])]
-    #[case::else_keyword("else", vec![Token::Keyword(Keyword::Else), Token::EndOfFile])]
-    #[case::for_keyword("for", vec![Token::Keyword(Keyword::For), Token::EndOfFile])]
-    #[case::while_keyword("while", vec![Token::Keyword(Keyword::While), Token::EndOfFile])]
-    #[case::do_keyword("do", vec![Token::Keyword(Keyword::Do), Token::EndOfFile])]
-    #[case::continue_keyword("continue", vec![Token::Keyword(Keyword::Continue), Token::EndOfFile])]
-    #[case::break_keyword("break", vec![Token::Keyword(Keyword::Break), Token::EndOfFile])]
     #[case::coma(",", vec![Token::Comma, Token::EndOfFile])]
     fn test_single_tokens(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
@@ -393,8 +420,49 @@ mod tests {
     }
 
     #[rstest]
-    #[case::keyword_return("return", vec![Token::Keyword(Keyword::Return), Token::EndOfFile])]
-    #[case::keyword_int("int", vec![Token::Keyword(Keyword::Int), Token::EndOfFile])]
+    #[case::auto_keyword("auto", vec![Token::Keyword(Keyword::Auto), Token::EndOfFile])]
+    #[case::break_keyword("break", vec![Token::Keyword(Keyword::Break), Token::EndOfFile])]
+    #[case::case_keyword("case", vec![Token::Keyword(Keyword::Case), Token::EndOfFile])]
+    #[case::char_keyword("char", vec![Token::Keyword(Keyword::Char), Token::EndOfFile])]
+    #[case::const_keyword("const", vec![Token::Keyword(Keyword::Const), Token::EndOfFile])]
+    #[case::continue_keyword("continue", vec![Token::Keyword(Keyword::Continue), Token::EndOfFile])]
+    #[case::default_keyword("default", vec![Token::Keyword(Keyword::Default), Token::EndOfFile])]
+    #[case::do_keyword("do", vec![Token::Keyword(Keyword::Do), Token::EndOfFile])]
+    #[case::double_keyword("double", vec![Token::Keyword(Keyword::Double), Token::EndOfFile])]
+    #[case::else_keyword("else", vec![Token::Keyword(Keyword::Else), Token::EndOfFile])]
+    #[case::enum_keyword("enum", vec![Token::Keyword(Keyword::Enum), Token::EndOfFile])]
+    #[case::extern_keyword("extern", vec![Token::Keyword(Keyword::Extern), Token::EndOfFile])]
+    #[case::float_keyword("float", vec![Token::Keyword(Keyword::Float), Token::EndOfFile])]
+    #[case::for_keyword("for", vec![Token::Keyword(Keyword::For), Token::EndOfFile])]
+    #[case::goto_keyword("goto", vec![Token::Keyword(Keyword::Goto), Token::EndOfFile])]
+    #[case::if_keyword("if", vec![Token::Keyword(Keyword::If), Token::EndOfFile])]
+    #[case::inline_keyword("inline", vec![Token::Keyword(Keyword::Inline), Token::EndOfFile])]
+    #[case::int_keyword("int", vec![Token::Keyword(Keyword::Int), Token::EndOfFile])]
+    #[case::long_keyword("long", vec![Token::Keyword(Keyword::Long), Token::EndOfFile])]
+    #[case::register_keyword("register", vec![Token::Keyword(Keyword::Register), Token::EndOfFile])]
+    #[case::restrict_keyword("restrict", vec![Token::Keyword(Keyword::Restrict), Token::EndOfFile])]
+    #[case::return_keyword("return", vec![Token::Keyword(Keyword::Return), Token::EndOfFile])]
+    #[case::short_keyword("short", vec![Token::Keyword(Keyword::Short), Token::EndOfFile])]
+    #[case::signed_keyword("signed", vec![Token::Keyword(Keyword::Signed), Token::EndOfFile])]
+    #[case::sizeof_keyword("sizeof", vec![Token::Keyword(Keyword::Sizeof), Token::EndOfFile])]
+    #[case::static_keyword("static", vec![Token::Keyword(Keyword::Static), Token::EndOfFile])]
+    #[case::struct_keyword("struct", vec![Token::Keyword(Keyword::Struct), Token::EndOfFile])]
+    #[case::switch_keyword("switch", vec![Token::Keyword(Keyword::Switch), Token::EndOfFile])]
+    #[case::typedef_keyword("typedef", vec![Token::Keyword(Keyword::Typedef), Token::EndOfFile])]
+    #[case::union_keyword("union", vec![Token::Keyword(Keyword::Union), Token::EndOfFile])]
+    #[case::unsigned_keyword("unsigned", vec![Token::Keyword(Keyword::Unsigned), Token::EndOfFile])]
+    #[case::void_keyword("void", vec![Token::Keyword(Keyword::Void), Token::EndOfFile])]
+    #[case::volatile_keyword("volatile", vec![Token::Keyword(Keyword::Volatile), Token::EndOfFile])]
+    #[case::while_keyword("while", vec![Token::Keyword(Keyword::While), Token::EndOfFile])]
+    #[case::alignof_keyword("_Alignof", vec![Token::Keyword(Keyword::_Alignof), Token::EndOfFile])]
+    #[case::atomic_keyword("_Atomic", vec![Token::Keyword(Keyword::_Atomic), Token::EndOfFile])]
+    #[case::bool_keyword("_Bool", vec![Token::Keyword(Keyword::_Bool), Token::EndOfFile])]
+    #[case::complex_keyword("_Complex", vec![Token::Keyword(Keyword::_Complex), Token::EndOfFile])]
+    #[case::generic_keyword("_Generic", vec![Token::Keyword(Keyword::_Generic), Token::EndOfFile])]
+    #[case::imaginary_keyword("_Imaginary", vec![Token::Keyword(Keyword::_Imaginary), Token::EndOfFile])]
+    #[case::noreturn_keyword("_Noreturn", vec![Token::Keyword(Keyword::_Noreturn), Token::EndOfFile])]
+    #[case::static_assert_keyword("_StaticAssert", vec![Token::Keyword(Keyword::_StaticAssert), Token::EndOfFile])]
+    #[case::thread_local_keyword("_ThreadLocal", vec![Token::Keyword(Keyword::_ThreadLocal), Token::EndOfFile])]
     fn test_keywords(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
