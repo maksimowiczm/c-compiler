@@ -280,10 +280,10 @@ where
                         continue;
                     }
 
-                    if ch.is_alphabetic() {
+                    if ch.is_alphabetic() || ch == '_' {
                         let mut word = ch.to_string();
                         while let Some(ch) = self.input.peek() {
-                            if ch.is_alphabetic() || ch.is_numeric() {
+                            if ch.is_alphabetic() || ch.is_numeric() || *ch == '_' {
                                 word.push(*ch);
                                 self.input.next();
                             } else {
@@ -464,6 +464,18 @@ mod tests {
     #[case::static_assert_keyword("_StaticAssert", vec![Token::Keyword(Keyword::_StaticAssert), Token::EndOfFile])]
     #[case::thread_local_keyword("_ThreadLocal", vec![Token::Keyword(Keyword::_ThreadLocal), Token::EndOfFile])]
     fn test_keywords(#[case] input: &str, #[case] expected: Vec<Token>) {
+        let lexer = Lexer::new(input.chars().peekable());
+        let tokens = lexer.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(tokens, expected);
+    }
+
+    #[rstest]
+    #[case::word("identifier", vec![Token::Word("identifier".to_string()), Token::EndOfFile])]
+    #[case::underscore("identifier_", vec![Token::Word("identifier_".to_string()), Token::EndOfFile])]
+    #[case::number("identifier123", vec![Token::Word("identifier123".to_string()), Token::EndOfFile])]
+    #[case::mixed("identifier_123", vec![Token::Word("identifier_123".to_string()), Token::EndOfFile])]
+    fn test_identifier(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();
 
