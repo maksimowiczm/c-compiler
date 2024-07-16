@@ -58,6 +58,19 @@ trait Parse {
             })
         }
     }
+
+    fn allow_token(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        expected: Token,
+    ) -> Result<(), ParserError> {
+        let token = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        if token.clone() == expected {
+            tokens.next();
+        }
+
+        Ok(())
+    }
 }
 
 struct Context {

@@ -1,4 +1,4 @@
-use crate::lexer::{Constant as TokenConstant, StringLiteral, Token};
+use crate::lexer::{Constant as TokenConstant, Keyword, StringLiteral, Token};
 use crate::parser::constant::Constant;
 use crate::parser::{Context, Parse, ParserError};
 use std::iter::Peekable;
@@ -25,6 +25,29 @@ pub enum Expression {
         variable: String,
         expression: Box<Expression>,
     },
+    Sizeof(SizeofExpression),
+    Unary {
+        operator: UnaryOperator,
+        expression: Box<Expression>,
+    },
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum UnaryOperator {
+    AddressOf,
+    Dereference,
+    Plus,
+    Minus,
+    BitwiseNot,
+    LogicalNot,
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum SizeofExpression {
+    Type(String),
+    Expression(Box<Expression>),
 }
 
 #[derive(Debug)]
@@ -46,12 +69,139 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
+    fn cast_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        todo!()
+    }
+
+    fn unary_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        let out = match peek {
+            Token::Increment => {
+                tokens.next();
+                let unary_expression = Self::unary_expression(tokens, context)?;
+                Expression::PreOperation {
+                    variable: unary_expression.get_identifier().ok_or_else(|| {
+                        ParserError::UnexpectedToken {
+                            unexpected: Token::Increment,
+                            expected: vec![Token::Word("<identifier>".to_string())],
+                            near_tokens: tokens.take(6).collect(),
+                        }
+                    })?,
+                    operator: InstantOperator::Increment,
+                }
+            }
+            Token::Decrement => {
+                tokens.next();
+                let unary_expression = Self::unary_expression(tokens, context)?;
+                Expression::PreOperation {
+                    variable: unary_expression.get_identifier().ok_or_else(|| {
+                        ParserError::UnexpectedToken {
+                            unexpected: Token::Decrement,
+                            expected: vec![Token::Word("<identifier>".to_string())],
+                            near_tokens: tokens.take(6).collect(),
+                        }
+                    })?,
+                    operator: InstantOperator::Decrement,
+                }
+            }
+            Token::Keyword(Keyword::Sizeof) => {
+                tokens.next();
+                Self::allow_token(tokens, Token::OpenParenthesis)?;
+                let peek = tokens
+                    .peek()
+                    .ok_or(ParserError::UnexpectedEndOfInput)?
+                    .clone();
+
+                let out = match peek {
+                    Token::Keyword(keyword) => {
+                        tokens.next();
+                        Expression::Sizeof(SizeofExpression::Type(
+                            // TODO: This is a hack, we should have a better way to handle this
+                            keyword.to_string().to_lowercase(),
+                        ))
+                    }
+                    _ => {
+                        let expression = Expression::parse(tokens, context)?;
+                        Expression::Sizeof(SizeofExpression::Expression(Box::new(expression)))
+                    }
+                };
+
+                Self::allow_token(tokens, Token::CloseParenthesis)?;
+
+                out
+            }
+            Token::Ampersand => {
+                tokens.next();
+                let expression = Self::cast_expression(tokens, context)?;
+                Expression::Unary {
+                    operator: UnaryOperator::AddressOf,
+                    expression: Box::new(expression),
+                }
+            }
+            Token::Star => {
+                tokens.next();
+                let expression = Self::cast_expression(tokens, context)?;
+                Expression::Unary {
+                    operator: UnaryOperator::Dereference,
+                    expression: Box::new(expression),
+                }
+            }
+            Token::Addition => {
+                tokens.next();
+                let expression = Self::cast_expression(tokens, context)?;
+                Expression::Unary {
+                    operator: UnaryOperator::Plus,
+                    expression: Box::new(expression),
+                }
+            }
+            Token::Negation => {
+                tokens.next();
+                let expression = Self::cast_expression(tokens, context)?;
+                Expression::Unary {
+                    operator: UnaryOperator::Minus,
+                    expression: Box::new(expression),
+                }
+            }
+            Token::BitwiseNot => {
+                tokens.next();
+                let expression = Self::cast_expression(tokens, context)?;
+                Expression::Unary {
+                    operator: UnaryOperator::BitwiseNot,
+                    expression: Box::new(expression),
+                }
+            }
+            Token::LogicalNot => {
+                tokens.next();
+                let expression = Self::cast_expression(tokens, context)?;
+                Expression::Unary {
+                    operator: UnaryOperator::LogicalNot,
+                    expression: Box::new(expression),
+                }
+            }
+            _ => Self::postfix_expression(tokens, context)?,
+        };
+
+        Ok(out)
+    }
+
     fn postfix_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
     ) -> Result {
         let primary = Self::primary_expression(tokens, context)?;
-        let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
+        let peek = tokens.peek();
+
+        let peek = match peek {
+            Some(token) => token,
+            None => return Ok(primary),
+        };
 
         let out = match peek {
             // <postfix-expression> [ <expression> ]
@@ -187,6 +337,7 @@ impl Expression {
     fn get_identifier(self) -> Option<String> {
         match self {
             Expression::Identifier(identifier) => Some(identifier),
+            Expression::StructMember { member, .. } => Some(member),
             _ => None,
         }
     }
@@ -194,7 +345,7 @@ impl Expression {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lexer::{Constant as TokenConstant, StringLiteral, Token};
+    use crate::lexer::{Constant as TokenConstant, Keyword, StringLiteral, Token};
     use crate::parser::constant::Constant;
     use crate::parser::Context;
     use rstest::rstest;
@@ -281,6 +432,114 @@ mod tests {
         };
         let result =
             Expression::postfix_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::pre_increment(
+        vec![
+            Token::Increment,
+            Token::Word("foo".to_string()),
+        ],
+        Expression::PreOperation {
+            variable: "foo".to_string(),
+            operator: InstantOperator::Increment,
+        },
+    )]
+    #[case::pre_decrement(
+        vec![
+            Token::Decrement,
+            Token::Word("foo".to_string()),
+        ],
+        Expression::PreOperation {
+            variable: "foo".to_string(),
+            operator: InstantOperator::Decrement,
+        },
+    )]
+    #[case::sizeof_type(
+        vec![
+            Token::Keyword(Keyword::Sizeof),
+            Token::OpenParenthesis,
+            Token::Keyword(Keyword::Int),
+            Token::CloseParenthesis,
+        ],
+        Expression::Sizeof(SizeofExpression::Type("int".to_string())),
+    )]
+    #[case::sizeof_expression(
+        vec![
+            Token::Keyword(Keyword::Sizeof),
+            Token::OpenParenthesis,
+            Token::Word("foo".to_string()),
+            Token::CloseParenthesis,
+        ],
+        Expression::Sizeof(SizeofExpression::Expression(Box::new(Expression::Identifier("foo".to_string())))),
+    )]
+    #[case::address_of(
+        vec![
+            Token::Ampersand,
+            Token::Word("foo".to_string()),
+        ],
+        Expression::Unary {
+            operator: UnaryOperator::AddressOf,
+            expression: Box::new(Expression::Identifier("foo".to_string())),
+        },
+    )]
+    #[case::dereference(
+        vec![
+            Token::Star,
+            Token::Word("foo".to_string()),
+        ],
+        Expression::Unary {
+            operator: UnaryOperator::Dereference,
+            expression: Box::new(Expression::Identifier("foo".to_string())),
+        },
+    )]
+    #[case::plus(
+        vec![
+            Token::Addition,
+            Token::Word("foo".to_string()),
+        ],
+        Expression::Unary {
+            operator: UnaryOperator::Plus,
+            expression: Box::new(Expression::Identifier("foo".to_string())),
+        },
+    )]
+    #[case::minus(
+        vec![
+            Token::Negation,
+            Token::Word("foo".to_string()),
+        ],
+        Expression::Unary {
+            operator: UnaryOperator::Minus,
+            expression: Box::new(Expression::Identifier("foo".to_string())),
+        },
+    )]
+    #[case::bitwise_not(
+        vec![
+            Token::BitwiseNot,
+            Token::Word("foo".to_string()),
+        ],
+        Expression::Unary {
+            operator: UnaryOperator::BitwiseNot,
+            expression: Box::new(Expression::Identifier("foo".to_string())),
+        },
+    )]
+    #[case::logical_not(
+        vec![
+            Token::LogicalNot,
+            Token::Word("foo".to_string()),
+        ],
+        Expression::Unary {
+            operator: UnaryOperator::LogicalNot,
+            expression: Box::new(Expression::Identifier("foo".to_string())),
+        },
+    )]
+    fn test_unary_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
+        let context = Context {
+            enums: Default::default(),
+        };
+        let result =
+            Expression::unary_expression(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 }

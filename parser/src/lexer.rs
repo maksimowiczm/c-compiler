@@ -1,4 +1,4 @@
-use derive_more::FromStr;
+use derive_more::{Display, FromStr};
 use std::cmp::PartialEq;
 use std::iter::Peekable;
 
@@ -68,7 +68,7 @@ pub enum Assignment {
     XorEqual,        // ^=
 }
 
-#[derive(Debug, PartialEq, Clone, FromStr)]
+#[derive(Debug, PartialEq, Clone, FromStr, Display)]
 pub enum Keyword {
     Auto,
     Break,
