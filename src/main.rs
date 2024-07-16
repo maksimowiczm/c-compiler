@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 use code_generator::asm64::StringyAssembly64CodeGenerator;
 use code_generator::ir::IR;
 use parser::lexer::Lexer;
-use parser::parser::Parser as CodeParser;
+use parser::parser_old::Parser as CodeParser;
 use std::error::Error;
 
 mod code_generator;

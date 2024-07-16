@@ -1,5 +1,5 @@
 use crate::code_generator::CodeGenerator;
-use parser::parser::Program;
+use parser::parser_old::Program;
 use std::io::Write;
 
 pub(crate) struct IR;

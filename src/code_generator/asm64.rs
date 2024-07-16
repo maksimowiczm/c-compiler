@@ -1,6 +1,6 @@
 use crate::code_generator::CodeGenerator;
 use derive_more::{Display, Error};
-use parser::parser::{
+use parser::parser_old::{
     Block, Declaration, Expression, Function, LogicalOperator, Operator, Program,
     RelationalOperator, Statement, UnaryOperator,
 };
