@@ -1,5 +1,5 @@
 use crate::lexer::{Constant as TokenConstant, Token};
-use crate::parser::{Parse, ParserError};
+use crate::parser::{Context, Parse, ParserError};
 use std::iter::Peekable;
 
 #[derive(Debug)]
@@ -12,19 +12,36 @@ pub enum Constant {
 }
 
 impl Parse for Constant {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError>
+    fn parse(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        _: &Context,
+    ) -> Result<Self, ParserError>
     where
         Self: Sized,
     {
-        let out = match tokens.next() {
-            Some(Token::Constant(constant)) => match constant {
+        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+        let out = match token {
+            Token::Constant(constant) => match constant {
                 TokenConstant::SignedInteger(value) => Constant::Integer(value as i128),
                 TokenConstant::UnsignedInteger(value) => Constant::Integer(value as i128),
                 TokenConstant::Decimal(value) => Constant::Float(value),
                 TokenConstant::Character(value) => Constant::Character(value),
             },
-            Some(Token::Word(value)) => Constant::Enumeration(value),
-            _ => return Err(ParserError::UnexpectedEndOfInput),
+            Token::Word(value) => Constant::Enumeration(value),
+            _ => {
+                return Err(ParserError::UnexpectedToken {
+                    unexpected: token,
+                    expected: vec![
+                        Token::Constant(TokenConstant::SignedInteger(0)),
+                        Token::Constant(TokenConstant::UnsignedInteger(0)),
+                        Token::Constant(TokenConstant::Decimal(0.0)),
+                        Token::Constant(TokenConstant::Character('*')),
+                        Token::Word("<identifier>".to_string()),
+                        Token::Word("<enumeration-constant>".to_string()),
+                    ],
+                    near_tokens: vec![],
+                })
+            }
         };
 
         Ok(out)
@@ -35,7 +52,7 @@ impl Parse for Constant {
 mod tests {
     use crate::lexer::{Constant as TokenConstant, Token};
     use crate::parser::constant::Constant;
-    use crate::parser::Parse;
+    use crate::parser::{Context, Parse};
     use rstest::rstest;
 
     #[rstest]
@@ -45,7 +62,10 @@ mod tests {
     #[case::character(vec![Token::Constant(TokenConstant::Character('a'))], Constant::Character('a'))]
     #[case::enumeration(vec![Token::Word("foo".to_string())], Constant::Enumeration("foo".to_string()))]
     fn test_constant(#[case] input: Vec<Token>, #[case] expected: Constant) {
-        let result = Constant::parse(&mut input.into_iter().peekable()).unwrap();
+        let context = Context {
+            enums: Default::default(),
+        };
+        let result = Constant::parse(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 }
