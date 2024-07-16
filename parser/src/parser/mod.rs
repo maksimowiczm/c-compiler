@@ -73,6 +73,7 @@ trait Parse {
     }
 }
 
+#[derive(Default)]
 struct Context {
     enums: HashMap<String, Vec<String>>,
 }

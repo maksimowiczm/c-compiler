@@ -30,6 +30,17 @@ pub enum Expression {
         operator: UnaryOperator,
         expression: Box<Expression>,
     },
+    Cast {
+        type_info: TypeInfo,
+        expression: Box<Expression>,
+    },
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum TypeInfo {
+    Keyword(String),
+    Struct(String),
 }
 
 #[derive(Debug)]
@@ -46,7 +57,7 @@ pub enum UnaryOperator {
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum SizeofExpression {
-    Type(String),
+    Type(TypeInfo),
     Expression(Box<Expression>),
 }
 
@@ -73,7 +84,21 @@ impl Expression {
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
     ) -> Result {
-        todo!()
+        let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        match peek {
+            Token::OpenParenthesis => {
+                tokens.next();
+                let type_info = TypeInfo::parse(tokens, context)?;
+                Self::expect_token(tokens, Token::CloseParenthesis)?;
+                let expression = Self::cast_expression(tokens, context)?;
+                Ok(Expression::Cast {
+                    type_info,
+                    expression: Box::new(expression),
+                })
+            }
+            _ => Self::unary_expression(tokens, context),
+        }
     }
 
     fn unary_expression(
@@ -120,13 +145,9 @@ impl Expression {
                     .clone();
 
                 let out = match peek {
-                    Token::Keyword(keyword) => {
-                        tokens.next();
-                        Expression::Sizeof(SizeofExpression::Type(
-                            // TODO: This is a hack, we should have a better way to handle this
-                            keyword.to_string().to_lowercase(),
-                        ))
-                    }
+                    Token::Keyword(_) => Expression::Sizeof(SizeofExpression::Type(
+                        TypeInfo::parse(tokens, context)?,
+                    )),
                     _ => {
                         let expression = Expression::parse(tokens, context)?;
                         Expression::Sizeof(SizeofExpression::Expression(Box::new(expression)))
@@ -342,6 +363,46 @@ impl Expression {
         }
     }
 }
+
+impl Parse for TypeInfo {
+    fn parse(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        _: &Context,
+    ) -> std::result::Result<TypeInfo, ParserError>
+    where
+        Self: Sized,
+    {
+        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        let out = match token {
+            Token::Keyword(Keyword::Struct) => {
+                let identifier = match tokens.next().ok_or(ParserError::UnexpectedEndOfInput)? {
+                    Token::Word(identifier) => identifier,
+                    unexpected => {
+                        return Err(ParserError::UnexpectedToken {
+                            unexpected,
+                            expected: vec![Token::Word("<identifier>".to_string())],
+                            near_tokens: tokens.take(6).collect(),
+                        })
+                    }
+                };
+
+                TypeInfo::Struct(identifier)
+            }
+            Token::Keyword(keyword) => TypeInfo::Keyword(keyword.to_string().to_lowercase()),
+            unexpected => {
+                return Err(ParserError::UnexpectedToken {
+                    unexpected,
+                    expected: vec![Token::Keyword(Keyword::Int)],
+                    near_tokens: tokens.take(6).collect(),
+                })
+            }
+        };
+
+        Ok(out)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,9 +488,7 @@ mod tests {
         },
     )]
     fn test_postfix_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context {
-            enums: Default::default(),
-        };
+        let context = Context::default();
         let result =
             Expression::postfix_expression(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
@@ -463,7 +522,7 @@ mod tests {
             Token::Keyword(Keyword::Int),
             Token::CloseParenthesis,
         ],
-        Expression::Sizeof(SizeofExpression::Type("int".to_string())),
+        Expression::Sizeof(SizeofExpression::Type(TypeInfo::Keyword("int".to_string()))),
     )]
     #[case::sizeof_expression(
         vec![
@@ -535,11 +594,38 @@ mod tests {
         },
     )]
     fn test_unary_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context {
-            enums: Default::default(),
-        };
+        let context = Context::default();
         let result =
             Expression::unary_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::cast_type(
+        vec![
+            Token::OpenParenthesis,
+            Token::Keyword(Keyword::Int),
+            Token::CloseParenthesis,
+            Token::Word("foo".to_string()),
+        ],
+        Expression::Cast {
+            type_info: TypeInfo::Keyword("int".to_string()),
+            expression: Box::new(Expression::Identifier("foo".to_string())),
+        },
+    )]
+    fn test_cast_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
+        let context = Context::default();
+        let result =
+            Expression::cast_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::type_name(vec![Token::Keyword(Keyword::Int)], TypeInfo::Keyword("int".to_string()))]
+    #[case::struct_(vec![Token::Keyword(Keyword::Struct), Token::Word("foo".to_string())], TypeInfo::Struct("foo".to_string()))]
+    fn test_type_info(#[case] input: Vec<Token>, #[case] expected: TypeInfo) {
+        let result =
+            TypeInfo::parse(&mut input.into_iter().peekable(), &Context::default()).unwrap();
         assert_eq!(result, expected);
     }
 }
