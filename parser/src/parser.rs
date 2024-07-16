@@ -96,7 +96,7 @@ pub enum Statement {
 
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub enum Expression {
-    Integer(u64),
+    Integer(i128),
     UnaryOperation {
         operator: UnaryOperator,
         operand: Box<Expression>,
@@ -1027,7 +1027,12 @@ impl Expression {
 
                 Ok(Expression::Variable(id))
             }
-            Token::Constant(Constant::UnsignedInteger(value)) => Ok(Expression::Integer(value)),
+            Token::Constant(Constant::UnsignedInteger(value)) => {
+                Ok(Expression::Integer(value as i128))
+            }
+            Token::Constant(Constant::SignedInteger(value)) => {
+                Ok(Expression::Integer(value as i128))
+            }
             Token::OpenParenthesis => {
                 let node = Expression::parse(tokens)?;
                 expect_token(tokens, Token::CloseParenthesis)?;
@@ -1099,8 +1104,15 @@ impl Expression {
             _ => Err(ParserError::UnexpectedToken {
                 unexpected: token,
                 expected: vec![
+                    Token::Word("<variable_name>".to_string()),
                     Token::Constant(Constant::UnsignedInteger(0)),
+                    Token::Constant(Constant::SignedInteger(0)),
                     Token::OpenParenthesis,
+                    Token::Negation,
+                    Token::BitwiseNot,
+                    Token::LogicalNot,
+                    Token::Increment,
+                    Token::Decrement,
                 ],
                 near_tokens: tokens.take(6).collect(),
             }),

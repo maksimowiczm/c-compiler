@@ -178,8 +178,7 @@ where
 
                     // check if the next character is a number
                     if peek.is_numeric() {
-                        self.input.next();
-                        return parse_number(peek, &mut self.input, Some(false));
+                        return parse_number('-', &mut self.input, Some(false));
                     }
 
                     // otherwise, check if it is an assignment or decrement
@@ -480,17 +479,12 @@ where
 
     match state {
         NumberType::Integer | NumberType::Binary | NumberType::Hexadecimal | NumberType::Octal => {
-            // take 'u'
-            if input
-                .take_while(|ch| matches!(ch, 'u' | 'U' | 'l' | 'L'))
-                .any(|ch| ch == 'u' || ch == 'U')
-            {
-                unsigned = Some(true);
-            }
-
-            // skip 'l'
+            // skip 'l' and 'u'
             while let Some(ch) = input.peek() {
-                if *ch == 'l' || *ch == 'L' {
+                if *ch == 'u' || *ch == 'U' {
+                    unsigned = Some(true);
+                    input.next();
+                } else if *ch == 'l' || *ch == 'L' {
                     input.next();
                 } else {
                     break;
@@ -499,11 +493,12 @@ where
         }
         NumberType::Decimal => {
             // take 'f'
-            if input
-                .take_while(|ch| matches!(ch, 'f' | 'F' | 'l' | 'L'))
-                .any(|ch| ch == 'f' || ch == 'F')
-            {
-                unsigned = Some(true);
+            while let Some(ch) = input.peek() {
+                if *ch == 'f' || *ch == 'F' || *ch == 'l' || *ch == 'L' {
+                    input.next();
+                } else {
+                    break;
+                }
             }
         }
     }
@@ -511,23 +506,23 @@ where
     // yeah, that is a bit stupid to collect and parse the number
     let number = digits.iter().collect::<String>();
     let parse_integer = |value| match unsigned {
-        Some(true) => Some(Token::Constant(Constant::UnsignedInteger(value))),
+        Some(true) => Some(Token::Constant(Constant::UnsignedInteger(value as u64))),
         _ => Some(Token::Constant(Constant::SignedInteger(value as i64))),
     };
 
     match state {
-        NumberType::Integer => number.parse::<u64>().ok().and_then(parse_integer),
+        NumberType::Integer => number.parse::<i128>().ok().and_then(parse_integer),
         NumberType::Decimal => number
             .parse::<f64>()
             .ok()
             .map(|value| Some(Token::Constant(Constant::Decimal(value))))?,
-        NumberType::Binary => u64::from_str_radix(&number[2..], 2)
+        NumberType::Binary => i128::from_str_radix(&number[2..], 2)
             .ok()
             .and_then(parse_integer),
-        NumberType::Hexadecimal => u64::from_str_radix(&number[2..], 16)
+        NumberType::Hexadecimal => i128::from_str_radix(&number[2..], 16)
             .ok()
             .and_then(parse_integer),
-        NumberType::Octal => u64::from_str_radix(&number[1..], 8)
+        NumberType::Octal => i128::from_str_radix(&number[1..], 8)
             .ok()
             .and_then(parse_integer),
     }
@@ -803,7 +798,7 @@ mod tests {
     #[case::unsigned_long_long("1234ull", vec![Token::Constant(Constant::UnsignedInteger(1234)), Token::EndOfFile])]
     #[case::unsigned_long_long_uppercase("1234ULL", vec![Token::Constant(Constant::UnsignedInteger(1234)), Token::EndOfFile])]
     #[case::positive_prefix("+1234", vec![Token::Constant(Constant::SignedInteger(1234)), Token::EndOfFile])]
-    #[case::negative_prefix("-1234", vec![Token::Constant(Constant::SignedInteger(1234)), Token::EndOfFile])]
+    #[case::negative_prefix("-1234", vec![Token::Constant(Constant::SignedInteger(-1234)), Token::EndOfFile])]
     #[case::decimal_suffix_float("1234.5678f", vec![Token::Constant(Constant::Decimal(1234.5678)), Token::EndOfFile])]
     #[case::decimal_suffix_long("1234.5678l", vec![Token::Constant(Constant::Decimal(1234.5678)), Token::EndOfFile])]
     #[case::char_escape_sequence_hex("'\\x41'", vec![Token::Constant(Constant::Character('A')), Token::EndOfFile])]
