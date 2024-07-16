@@ -1,5 +1,6 @@
 use crate::lexer::{Assignment, Constant, Keyword, Token};
 use derive_more::{Display, Error};
+use std::fmt::Debug;
 use std::iter::Peekable;
 
 pub struct Parser;
@@ -32,12 +33,14 @@ pub enum ParserError {
     },
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct Program {
     pub functions: Vec<Function>,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct Function {
     pub declaration: bool,
     pub name: String,
@@ -45,19 +48,22 @@ pub struct Function {
     pub arguments: Vec<String>,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum Block {
     Statement(Statement),
     Declaration(Declaration),
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct Declaration {
     pub variable: String,
     pub expression: Option<Expression>,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum Statement {
     Return {
         expression: Expression,
@@ -94,7 +100,8 @@ pub enum Statement {
     Break,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum Expression {
     Integer(i128),
     UnaryOperation {
@@ -132,14 +139,16 @@ pub enum Expression {
     },
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum UnaryOperator {
     Negation,
     BitwiseNot,
     LogicalNot,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum Operator {
     Addition,
     Multiplication,
@@ -152,13 +161,15 @@ pub enum Operator {
     ShiftRight,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum LogicalOperator {
     And,
     Or,
 }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum RelationalOperator {
     Equal,
     NotEqual,

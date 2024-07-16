@@ -21,21 +21,40 @@ struct Args {
 enum SubCommand {
     ASM64 { path: String },
     IR { path: String },
+    Tokenize { path: String },
+    Ast { path: String },
 }
 
 impl SubCommand {
     fn path(&self) -> &str {
         match self {
-            SubCommand::ASM64 { path } | SubCommand::IR { path } => path,
+            SubCommand::ASM64 { path }
+            | SubCommand::IR { path }
+            | SubCommand::Tokenize { path }
+            | SubCommand::Ast { path } => path,
         }
     }
 
-    fn run(&self) -> Result<Vec<u8>, Box<dyn Error>> {
+    fn run(&self) -> Result<Option<Vec<u8>>, Box<dyn Error>> {
         let path = self.path();
-        let source = std::fs::read_to_string(&path).expect("could not read file");
+        let source = std::fs::read_to_string(path).expect("could not read file");
         let lexer = Lexer::new(source.chars().peekable());
         let tokens = lexer.into_iter().peekable();
+
+        if let SubCommand::Tokenize { .. } = self {
+            for token in tokens {
+                println!("{:?}", token);
+            }
+            return Ok(None);
+        }
+
         let ast = CodeParser::parse(tokens).expect("could not parse program");
+
+        if let SubCommand::Ast { .. } = self {
+            println!("{:#?}", ast);
+            return Ok(None);
+        }
+
         let mut buffer = Vec::new();
 
         match self {
@@ -47,9 +66,10 @@ impl SubCommand {
                 let generator = IR;
                 generator.generate(ast, &mut buffer)?;
             }
+            _ => unreachable!(),
         }
 
-        Ok(buffer)
+        Ok(Some(buffer))
     }
 }
 
@@ -65,6 +85,8 @@ fn main() {
     };
 
     if let Some(output) = args.output {
-        std::fs::write(output, &buffer).expect("could not write to file");
+        if let Some(buffer) = buffer {
+            std::fs::write(output, buffer).expect("could not write to file");
+        }
     }
 }
