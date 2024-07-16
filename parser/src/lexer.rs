@@ -22,7 +22,7 @@ pub enum Token {
     LogicalNot,
     BitwiseNot,
     Addition,
-    Multiplication,
+    Star,
     Division,
     LogicalAnd,
     LogicalOr,
@@ -38,13 +38,19 @@ pub enum Token {
     Modulo,
     BitwiseXor,
     BitwiseOr,
-    BitwiseAnd,
+    Ampersand,
     Increment,
     Decrement,
     Colon,
     QuestionMark,
     Comma,
     StringLiteral(StringLiteral),
+    OpenSquareBracket,
+    CloseSquareBracket,
+    Dot,
+    Arrow,
+    TripleDot,
+    Hash,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -165,6 +171,11 @@ where
                         None => return Some(Token::Negation),
                     };
 
+                    if peek == '>' {
+                        self.input.next();
+                        return Some(Token::Arrow);
+                    }
+
                     // check if the next character is a number
                     if peek.is_numeric() {
                         self.input.next();
@@ -214,7 +225,7 @@ where
                         self.input.next();
                         Some(Token::Assignment(Assignment::MultiplyEqual))
                     } else {
-                        Some(Token::Multiplication)
+                        Some(Token::Star)
                     }
                 }
                 '/' => {
@@ -233,7 +244,7 @@ where
                         self.input.next();
                         Some(Token::Assignment(Assignment::AndEqual))
                     } else {
-                        Some(Token::BitwiseAnd)
+                        Some(Token::Ampersand)
                     }
                 }
                 '|' => {
@@ -309,33 +320,31 @@ where
                 ',' => Some(Token::Comma),
                 '\'' => parse_character(&mut self.input),
                 '.' => {
-                    let mut digits = vec![ch];
+                    let peek = self.input.peek();
+                    if peek.is_none() {
+                        return Some(Token::Dot);
+                    }
 
-                    if let Some(ch) = self.input.peek() {
-                        if ch.is_numeric() {
-                            while let Some(ch) = self.input.peek() {
-                                if ch.is_numeric() {
-                                    digits.push(*ch);
-                                    self.input.next();
-                                } else {
-                                    break;
-                                }
-                            }
+                    let peek = *peek.unwrap();
 
-                            let number = digits.iter().collect::<String>();
-                            if let Ok(value) = number.parse::<f64>() {
-                                Some(Token::Constant(Constant::Decimal(value)))
-                            } else {
-                                None
-                            }
+                    if peek.is_numeric() {
+                        parse_number(ch, &mut self.input, None)
+                    } else if peek == '.' {
+                        self.input.next();
+                        if let Some('.') = self.input.peek() {
+                            self.input.next();
+                            Some(Token::TripleDot)
                         } else {
                             None
                         }
                     } else {
-                        None
+                        Some(Token::Dot)
                     }
                 }
                 '"' => parse_string(&mut self.input),
+                '[' => Some(Token::OpenSquareBracket),
+                ']' => Some(Token::CloseSquareBracket),
+                '#' => Some(Token::Hash),
                 _ => {
                     if ch.is_whitespace() {
                         continue;
@@ -420,6 +429,7 @@ where
             Some(_) => NumberType::Octal,
             None => NumberType::Integer,
         },
+        '.' => NumberType::Decimal,
         _ => NumberType::Integer,
     };
 
@@ -661,7 +671,7 @@ mod tests {
     #[case::logical_not("!", vec![Token::LogicalNot, Token::EndOfFile])]
     #[case::bitwise_not("~", vec![Token::BitwiseNot, Token::EndOfFile])]
     #[case::addition("+", vec![Token::Addition, Token::EndOfFile])]
-    #[case::multiplication("*", vec![Token::Multiplication, Token::EndOfFile])]
+    #[case::multiplication("*", vec![Token::Star, Token::EndOfFile])]
     #[case::division("/", vec![Token::Division, Token::EndOfFile])]
     #[case::and("&&", vec![Token::LogicalAnd, Token::EndOfFile])]
     #[case::or("||", vec![Token::LogicalOr, Token::EndOfFile])]
@@ -687,7 +697,7 @@ mod tests {
     #[case::modulo("%", vec![Token::Modulo, Token::EndOfFile])]
     #[case::xor("^", vec![Token::BitwiseXor, Token::EndOfFile])]
     #[case::or("|", vec![Token::BitwiseOr, Token::EndOfFile])]
-    #[case::and("&", vec![Token::BitwiseAnd, Token::EndOfFile])]
+    #[case::and("&", vec![Token::Ampersand, Token::EndOfFile])]
     #[case::increment("++", vec![Token::Increment, Token::EndOfFile])]
     #[case::decrement("--", vec![Token::Decrement, Token::EndOfFile])]
     #[case::colon(":", vec![Token::Colon, Token::EndOfFile])]
@@ -744,6 +754,14 @@ mod tests {
     #[case::noreturn_keyword("_Noreturn", vec![Token::Keyword(Keyword::_Noreturn), Token::EndOfFile])]
     #[case::static_assert_keyword("_StaticAssert", vec![Token::Keyword(Keyword::_StaticAssert), Token::EndOfFile])]
     #[case::thread_local_keyword("_ThreadLocal", vec![Token::Keyword(Keyword::_ThreadLocal), Token::EndOfFile])]
+    #[case::open_square_bracket("[", vec![Token::OpenSquareBracket, Token::EndOfFile])]
+    #[case::close_square_bracket("]", vec![Token::CloseSquareBracket, Token::EndOfFile])]
+    #[case::dot(".", vec![Token::Dot, Token::EndOfFile])]
+    #[case::triangle_dot("...", vec![Token::TripleDot, Token::EndOfFile])]
+    #[case::arrow("->", vec![Token::Arrow, Token::EndOfFile])]
+    #[case::ampersand("&", vec![Token::Ampersand, Token::EndOfFile])]
+    #[case::star("*", vec![Token::Star, Token::EndOfFile])]
+    #[case::hash("#", vec![Token::Hash, Token::EndOfFile])]
     fn test_keywords(#[case] input: &str, #[case] expected: Vec<Token>) {
         let lexer = Lexer::new(input.chars().peekable());
         let tokens = lexer.into_iter().collect::<Vec<_>>();

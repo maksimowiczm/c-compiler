@@ -776,7 +776,7 @@ impl Expression {
 
         while let Some(token) = tokens.peek() {
             match token {
-                Token::BitwiseAnd => {
+                Token::Ampersand => {
                     tokens.next();
                     let right = Box::new(Expression::parse(tokens)?);
                     node = Expression::Operation {
@@ -938,7 +938,7 @@ impl Expression {
 
         while let Some(token) = tokens.peek() {
             match token {
-                Token::Multiplication => {
+                Token::Star => {
                     tokens.next();
                     let right = Box::new(Expression::term(tokens)?);
                     node = Expression::Operation {
@@ -1329,7 +1329,7 @@ mod tests {
     #[case::multiplication(
         &[
             Token::Constant(Constant::UnsignedInteger(1)),
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
@@ -1356,7 +1356,7 @@ mod tests {
             Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
             Token::Constant(Constant::UnsignedInteger(2)),
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(3)),
         ],
         Expression::Operation {
@@ -1372,7 +1372,7 @@ mod tests {
     #[case::multiplication_addition(
         &[
             Token::Constant(Constant::UnsignedInteger(1)),
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(2)),
             Token::Addition,
             Token::Constant(Constant::UnsignedInteger(3)),
@@ -1390,7 +1390,7 @@ mod tests {
     #[case::multiplication_division(
         &[
             Token::Constant(Constant::UnsignedInteger(1)),
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(2)),
             Token::Division,
             Token::Constant(Constant::UnsignedInteger(3)),
@@ -1410,7 +1410,7 @@ mod tests {
             Token::Constant(Constant::UnsignedInteger(1)),
             Token::Division,
             Token::Constant(Constant::UnsignedInteger(2)),
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(3)),
         ],
         Expression::Operation {
@@ -1428,7 +1428,7 @@ mod tests {
             Token::Constant(Constant::UnsignedInteger(1)),
             Token::Addition,
             Token::Constant(Constant::UnsignedInteger(2)),
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(3)),
             Token::Division,
             Token::Constant(Constant::UnsignedInteger(4)),
@@ -1454,7 +1454,7 @@ mod tests {
             Token::Constant(Constant::UnsignedInteger(2)),
             Token::Division,
             Token::Constant(Constant::UnsignedInteger(3)),
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(4)),
         ],
         Expression::Operation {
@@ -1474,7 +1474,7 @@ mod tests {
     #[case::multiplication_addition_division(
         &[
             Token::Constant(Constant::UnsignedInteger(1)),
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(2)),
             Token::Addition,
             Token::Constant(Constant::UnsignedInteger(3)),
@@ -1498,7 +1498,7 @@ mod tests {
     #[case::multiplication_division_addition(
         &[
             Token::Constant(Constant::UnsignedInteger(1)),
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(2)),
             Token::Division,
             Token::Constant(Constant::UnsignedInteger(3)),
@@ -1549,7 +1549,7 @@ mod tests {
             Token::Addition,
             Token::Constant(Constant::UnsignedInteger(2)),
             Token::CloseParenthesis,
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(3)),
         ],
         Expression::Operation {
@@ -1656,7 +1656,7 @@ mod tests {
     #[case::bitwise_and(
         &[
             Token::Constant(Constant::UnsignedInteger(1)),
-            Token::BitwiseAnd,
+            Token::Ampersand,
             Token::Constant(Constant::UnsignedInteger(2)),
         ],
         Expression::Operation {
@@ -1891,7 +1891,7 @@ mod tests {
             Token::Constant(Constant::UnsignedInteger(2)),
             Token::Equal,
             Token::Constant(Constant::UnsignedInteger(3)),
-            Token::Multiplication,
+            Token::Star,
             Token::Constant(Constant::UnsignedInteger(4)),
         ],
         Expression::RelationalOperation {
