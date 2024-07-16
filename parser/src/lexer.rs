@@ -44,6 +44,7 @@ pub enum Token {
     Colon,
     QuestionMark,
     Comma,
+    StringLiteral(StringLiteral),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -115,6 +116,11 @@ pub enum Constant {
     UnsignedInteger(u64),
     Decimal(f64),
     Character(char),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum StringLiteral {
+    ByteString(Vec<char>),
 }
 
 impl<TInput> Lexer<TInput>
@@ -329,9 +335,22 @@ where
                         None
                     }
                 }
+                '"' => parse_string(&mut self.input),
                 _ => {
                     if ch.is_whitespace() {
                         continue;
+                    }
+
+                    if ch == 'u' {
+                        if let Some(ch) = self.input.peek() {
+                            if *ch == '8' {
+                                self.input.next();
+                                if let Some('"') = self.input.peek() {
+                                    self.input.next();
+                                    return parse_string(&mut self.input);
+                                }
+                            }
+                        }
                     }
 
                     if ch.is_alphabetic() || ch == '_' {
@@ -526,40 +545,8 @@ where
             '"' => '"',
             '\\' => '\\',
             '?' => '?',
-            '0'..='7' => {
-                let mut digits = vec![ch];
-                digits.push(input.next()?);
-                if let Some(ch) = input.peek() {
-                    if ch.is_numeric() {
-                        digits.push(*ch);
-                        input.next();
-                    }
-                }
-
-                let number = digits.iter().collect::<String>();
-                if let Ok(value) = u8::from_str_radix(&number, 8) {
-                    value as char
-                } else {
-                    return None;
-                }
-            }
-            'x' => {
-                let mut digits = vec![];
-                digits.push(input.next()?);
-                if let Some(ch) = input.peek() {
-                    if ch.is_alphanumeric() {
-                        digits.push(*ch);
-                        input.next();
-                    }
-                }
-
-                let number = digits.iter().collect::<String>();
-                if let Ok(value) = u8::from_str_radix(&number, 16) {
-                    value as char
-                } else {
-                    return None;
-                }
-            }
+            '0'..='7' => parse_octal_character(ch, input)?,
+            'x' => parse_hexadecimal_character(input)?,
             other => other,
         }
     };
@@ -571,6 +558,93 @@ where
     }
 }
 
+fn parse_octal_character<TInput>(start: char, input: &mut Peekable<TInput>) -> Option<char>
+where
+    TInput: Iterator<Item = char>,
+{
+    let mut digits = vec![start];
+    while let Some(ch) = input.peek() {
+        match ch {
+            '0'..='7' => {
+                digits.push(*ch);
+                input.next();
+            }
+            _ => break,
+        }
+    }
+
+    let number = digits.iter().collect::<String>();
+    if let Ok(value) = u8::from_str_radix(&number, 8) {
+        Some(value as char)
+    } else {
+        None
+    }
+}
+
+fn parse_hexadecimal_character<TInput>(input: &mut Peekable<TInput>) -> Option<char>
+where
+    TInput: Iterator<Item = char>,
+{
+    let mut digits = vec![];
+    while let Some(ch) = input.peek() {
+        match ch {
+            '0'..='9' | 'a'..='f' | 'A'..='F' => {
+                digits.push(*ch);
+                input.next();
+            }
+            _ => break,
+        }
+    }
+
+    let number = digits.iter().collect::<String>();
+    if let Ok(value) = u8::from_str_radix(&number, 16) {
+        Some(value as char)
+    } else {
+        None
+    }
+}
+
+fn parse_string<TInput>(input: &mut Peekable<TInput>) -> Option<Token>
+where
+    TInput: Iterator<Item = char>,
+{
+    let mut string = vec![];
+    while let Some(ch) = input.next() {
+        if ch == '"' {
+            break;
+        }
+
+        if ch == '\\' {
+            let ch = input.next()?;
+            match ch {
+                'a' => string.push('\x07'),
+                'b' => string.push('\x08'),
+                'f' => string.push('\x0C'),
+                'n' => string.push('\n'),
+                'r' => string.push('\r'),
+                't' => string.push('\t'),
+                'v' => string.push('\x0B'),
+                '\'' => string.push('\''),
+                '"' => string.push('"'),
+                '\\' => string.push('\\'),
+                '?' => string.push('?'),
+                '0'..='7' => {
+                    let number = parse_octal_character(ch, input)?;
+                    string.push(number);
+                }
+                'x' => {
+                    let number = parse_hexadecimal_character(input)?;
+                    string.push(number);
+                }
+                _ => panic!(),
+            }
+        } else {
+            string.push(ch);
+        }
+    }
+
+    Some(Token::StringLiteral(StringLiteral::ByteString(string)))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -746,5 +820,18 @@ mod tests {
                 Token::EndOfFile
             ]
         );
+    }
+
+    #[rstest]
+    #[case::string("\"hello\"", vec![Token::StringLiteral(StringLiteral::ByteString("hello".chars().collect())), Token::EndOfFile])]
+    #[case::string_escape_sequence("\"\\n\"", vec![Token::StringLiteral(StringLiteral::ByteString("\n".chars().collect())), Token::EndOfFile])]
+    #[case::string_escape_sequence_hex("\"\\x41\"", vec![Token::StringLiteral(StringLiteral::ByteString("A".chars().collect())), Token::EndOfFile])]
+    #[case::string_escape_sequence_octal("\"\\101\"", vec![Token::StringLiteral(StringLiteral::ByteString("A".chars().collect())), Token::EndOfFile])]
+    #[case::u8_prefix("u8\"hello\"", vec![Token::StringLiteral(StringLiteral::ByteString("hello".chars().collect())), Token::EndOfFile])]
+    fn test_string_literal(#[case] input: &str, #[case] expected: Vec<Token>) {
+        let lexer = Lexer::new(input.chars().peekable());
+        let tokens = lexer.into_iter().collect::<Vec<_>>();
+
+        assert_eq!(tokens, expected);
     }
 }
