@@ -59,6 +59,19 @@ pub enum Expression {
         right: Box<Expression>,
         operator: EqualityOperator,
     },
+    Bitwise {
+        left: Box<Expression>,
+        right: Box<Expression>,
+        operator: BitwiseOperator,
+    },
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum BitwiseOperator {
+    And,
+    Or,
+    Xor,
 }
 
 #[derive(Debug)]
@@ -143,6 +156,87 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
+    fn inclusive_or_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let exclusive_or_expression = Self::exclusive_or_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(exclusive_or_expression),
+        };
+
+        let out = match peek {
+            Token::BitwiseOr => {
+                tokens.next();
+                let right = Self::exclusive_or_expression(tokens, context)?;
+                Expression::Bitwise {
+                    left: Box::new(exclusive_or_expression),
+                    right: Box::new(right),
+                    operator: BitwiseOperator::Or,
+                }
+            }
+            _ => exclusive_or_expression,
+        };
+
+        Ok(out)
+    }
+
+    fn exclusive_or_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let and_expression = Self::and_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(and_expression),
+        };
+
+        let out = match peek {
+            Token::BitwiseXor => {
+                tokens.next();
+                let right = Self::and_expression(tokens, context)?;
+                Expression::Bitwise {
+                    left: Box::new(and_expression),
+                    right: Box::new(right),
+                    operator: BitwiseOperator::Xor,
+                }
+            }
+            _ => and_expression,
+        };
+
+        Ok(out)
+    }
+
+    fn and_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let equality_expression = Self::equality_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(equality_expression),
+        };
+
+        let out = match peek {
+            Token::Ampersand => {
+                tokens.next();
+                let right = Self::equality_expression(tokens, context)?;
+                Expression::Bitwise {
+                    left: Box::new(equality_expression),
+                    right: Box::new(right),
+                    operator: BitwiseOperator::And,
+                }
+            }
+            _ => equality_expression,
+        };
+
+        Ok(out)
+    }
+
     fn equality_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -1047,6 +1141,62 @@ mod tests {
         let context = Context::default();
         let result =
             Expression::equality_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_and_expression() {
+        let input = vec![
+            Token::Word("foo".to_string()),
+            Token::Ampersand,
+            Token::Word("bar".to_string()),
+        ];
+        let expected = Expression::Bitwise {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: BitwiseOperator::And,
+        };
+        let context = Context::default();
+        let result =
+            Expression::and_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_exclusive_or_expression() {
+        let input = vec![
+            Token::Word("foo".to_string()),
+            Token::BitwiseXor,
+            Token::Word("bar".to_string()),
+        ];
+        let expected = Expression::Bitwise {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: BitwiseOperator::Xor,
+        };
+        let context = Context::default();
+        let result =
+            Expression::exclusive_or_expression(&mut input.into_iter().peekable(), &context)
+                .unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_inclusive_or_expression() {
+        let input = vec![
+            Token::Word("foo".to_string()),
+            Token::BitwiseOr,
+            Token::Word("bar".to_string()),
+        ];
+        let expected = Expression::Bitwise {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: BitwiseOperator::Or,
+        };
+        let context = Context::default();
+        let result =
+            Expression::inclusive_or_expression(&mut input.into_iter().peekable(), &context)
+                .unwrap();
         assert_eq!(result, expected);
     }
 
