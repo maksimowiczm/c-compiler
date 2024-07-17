@@ -41,15 +41,14 @@ pub enum ParserError {
     },
 }
 
+pub type Result<T> = std::result::Result<T, ParserError>;
+
 trait Parse {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError>
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
     where
         Self: Sized;
 
-    fn expect_token(
-        tokens: &mut impl Iterator<Item = Token>,
-        expected: Token,
-    ) -> Result<(), ParserError> {
+    fn expect_token(tokens: &mut impl Iterator<Item = Token>, expected: Token) -> Result<()> {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         if token == expected {
@@ -66,7 +65,7 @@ trait Parse {
     fn allow_token(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         expected: Token,
-    ) -> Result<(), ParserError> {
+    ) -> Result<()> {
         let token = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         if token.clone() == expected {

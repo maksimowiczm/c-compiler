@@ -1,7 +1,7 @@
 use crate::lexer::{Keyword, Token};
 use crate::parser::constant::Constant;
 use crate::parser::expression::Expression;
-use crate::parser::{Parse, ParserError};
+use crate::parser::{Parse, ParserError, Result};
 use std::iter::Peekable;
 
 #[derive(Debug)]
@@ -56,10 +56,8 @@ pub enum Label {
     Default,
 }
 
-type Result = std::result::Result<Statement, ParserError>;
-
 impl Parse for Statement {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
     where
         Self: Sized,
     {
@@ -87,7 +85,7 @@ impl Parse for Statement {
 }
 
 impl Statement {
-    fn jump_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn jump_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
@@ -126,7 +124,7 @@ impl Statement {
         Ok(out)
     }
 
-    fn iteration_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn iteration_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
@@ -160,7 +158,7 @@ impl Statement {
         Ok(out)
     }
 
-    fn labeled_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn labeled_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
@@ -187,7 +185,7 @@ impl Statement {
         Ok(out)
     }
 
-    fn expression_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn expression_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match peek {
@@ -226,7 +224,7 @@ impl Statement {
         Ok(out)
     }
 
-    fn conditional_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn conditional_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {

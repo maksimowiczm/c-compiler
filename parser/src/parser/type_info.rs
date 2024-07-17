@@ -1,5 +1,5 @@
 use crate::lexer::{Keyword, Token};
-use crate::parser::{Parse, ParserError};
+use crate::parser::{Parse, ParserError, Result};
 use std::iter::Peekable;
 
 #[derive(Debug)]
@@ -19,7 +19,7 @@ pub enum TypeInfo {
 }
 
 impl Parse for TypeInfo {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<TypeInfo, ParserError>
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
     where
         Self: Sized,
     {

@@ -3,7 +3,7 @@ use crate::lexer::{
 };
 use crate::parser::constant::Constant;
 use crate::parser::type_info::TypeInfo;
-use crate::parser::{Parse, ParserError};
+use crate::parser::{Parse, ParserError, Result};
 use std::iter::Peekable;
 use TokenAssignment::*;
 
@@ -185,7 +185,7 @@ pub enum InstantOperator {
 }
 
 impl Parse for Expression {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
     where
         Self: Sized,
     {
@@ -211,10 +211,10 @@ impl Parse for Expression {
     }
 }
 
-type Result = std::result::Result<Expression, ParserError>;
-
 impl Expression {
-    fn assignment_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn assignment_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Result<Self> {
         let conditional_expression = Self::conditional_expression(tokens)?;
 
         let identifier = match &conditional_expression {
@@ -252,7 +252,7 @@ impl Expression {
         })
     }
 
-    fn conditional_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn conditional_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let logical_or_expression = Self::logical_or_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -278,7 +278,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn logical_or_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn logical_or_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let logical_and_expression = Self::logical_and_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -302,7 +302,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn logical_and_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn logical_and_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let inclusive_or_expression = Self::inclusive_or_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -326,7 +326,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn inclusive_or_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn inclusive_or_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let exclusive_or_expression = Self::exclusive_or_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -350,7 +350,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn exclusive_or_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn exclusive_or_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let and_expression = Self::and_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -374,7 +374,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn and_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn and_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let equality_expression = Self::equality_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -398,7 +398,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn equality_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn equality_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let relation_expression = Self::relation_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -421,7 +421,7 @@ impl Expression {
         })
     }
 
-    fn relation_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn relation_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let shift_expression = Self::shift_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -446,7 +446,7 @@ impl Expression {
         })
     }
 
-    fn shift_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn shift_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let additive_expression = Self::additive_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -479,7 +479,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn additive_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn additive_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let multiplicative_expression = Self::multiplicative_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -512,7 +512,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn multiplicative_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn multiplicative_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let cast_expression = Self::cast_expression(tokens)?;
 
         let peek = match tokens.peek() {
@@ -554,7 +554,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn cast_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn cast_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         match peek {
@@ -572,7 +572,7 @@ impl Expression {
         }
     }
 
-    fn unary_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn unary_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match peek {
@@ -680,7 +680,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn postfix_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn postfix_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let primary = Self::primary_expression(tokens)?;
         let peek = tokens.peek();
 
@@ -769,7 +769,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn primary_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+    fn primary_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
         let token = tokens
             .peek()
             .ok_or(ParserError::UnexpectedEndOfInput)?
@@ -1067,6 +1067,7 @@ mod tests {
     fn test_multiplicative_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
         let result =
             Expression::multiplicative_expression(&mut input.into_iter().peekable()).unwrap();
+        assert_eq!(result, expected);
     }
 
     #[rstest]

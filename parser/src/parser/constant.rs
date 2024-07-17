@@ -1,5 +1,5 @@
 use crate::lexer::{Constant as TokenConstant, Token};
-use crate::parser::{Parse, ParserError};
+use crate::parser::{Parse, ParserError, Result};
 use std::iter::Peekable;
 
 #[derive(Debug)]
@@ -12,7 +12,7 @@ pub enum Constant {
 }
 
 impl Parse for Constant {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError>
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
     where
         Self: Sized,
     {
