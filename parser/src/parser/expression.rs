@@ -34,6 +34,19 @@ pub enum Expression {
         type_info: TypeInfo,
         expression: Box<Expression>,
     },
+    Multiplicative {
+        left: Box<Expression>,
+        right: Box<Expression>,
+        operator: MultiplicativeOperator,
+    },
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum MultiplicativeOperator {
+    Multiply,
+    Divide,
+    Modulo,
 }
 
 #[derive(Debug)]
@@ -80,6 +93,51 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
+    fn multiplicative_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let cast_expression = Self::cast_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(cast_expression),
+        };
+
+        let out = match peek {
+            Token::Star => {
+                tokens.next();
+                let right = Self::cast_expression(tokens, context)?;
+                Expression::Multiplicative {
+                    left: Box::new(cast_expression),
+                    right: Box::new(right),
+                    operator: MultiplicativeOperator::Multiply,
+                }
+            }
+            Token::Division => {
+                tokens.next();
+                let right = Self::cast_expression(tokens, context)?;
+                Expression::Multiplicative {
+                    left: Box::new(cast_expression),
+                    right: Box::new(right),
+                    operator: MultiplicativeOperator::Divide,
+                }
+            }
+            Token::Modulo => {
+                tokens.next();
+                let right = Self::cast_expression(tokens, context)?;
+                Expression::Multiplicative {
+                    left: Box::new(cast_expression),
+                    right: Box::new(right),
+                    operator: MultiplicativeOperator::Modulo,
+                }
+            }
+            _ => cast_expression,
+        };
+
+        Ok(out)
+    }
+
     fn cast_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -618,6 +676,50 @@ mod tests {
         let result =
             Expression::cast_expression(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::multiply(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Star,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Multiplicative {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: MultiplicativeOperator::Multiply,
+        },
+    )]
+    #[case::divide(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Division,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Multiplicative {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: MultiplicativeOperator::Divide,
+        },
+    )]
+    #[case::modulo(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Modulo,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Multiplicative {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: MultiplicativeOperator::Modulo,
+        },
+    )]
+    fn test_multiplicative_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
+        let context = Context::default();
+        let result =
+            Expression::multiplicative_expression(&mut input.into_iter().peekable(), &context)
+                .unwrap();
     }
 
     #[rstest]
