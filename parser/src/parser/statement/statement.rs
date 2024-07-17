@@ -1,7 +1,8 @@
 use crate::lexer::{Keyword, Token};
 use crate::parser::constant::Constant;
 use crate::parser::expression::Expression;
-use crate::parser::{Parse, ParserError, Result};
+use crate::parser::statement::compound_statement::CompoundStatement;
+use crate::parser::{Parse, ParserError};
 use std::iter::Peekable;
 
 #[derive(Debug)]
@@ -21,7 +22,7 @@ pub enum Statement {
         label: Label,
         statement: Box<Statement>,
     },
-    Compound(Vec<Statement>),
+    Compound(CompoundStatement),
     Loop(Loop),
     Jump(Jump),
 }
@@ -57,7 +58,7 @@ pub enum Label {
 }
 
 impl Parse for Statement {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> crate::parser::Result<Self>
     where
         Self: Sized,
     {
@@ -73,6 +74,10 @@ impl Parse for Statement {
             Token::Keyword(Keyword::While) | Token::Keyword(Keyword::Do) => {
                 Statement::iteration_statement(tokens)?
             }
+            Token::OpenBrace => {
+                let compound = CompoundStatement::parse(tokens)?;
+                Statement::Compound(compound)
+            }
             Token::Keyword(Keyword::Goto)
             | Token::Keyword(Keyword::Continue)
             | Token::Keyword(Keyword::Break)
@@ -85,7 +90,9 @@ impl Parse for Statement {
 }
 
 impl Statement {
-    fn jump_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
+    fn jump_statement(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> crate::parser::Result<Self> {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
@@ -124,7 +131,9 @@ impl Statement {
         Ok(out)
     }
 
-    fn iteration_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
+    fn iteration_statement(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> crate::parser::Result<Self> {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
@@ -158,7 +167,9 @@ impl Statement {
         Ok(out)
     }
 
-    fn labeled_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
+    fn labeled_statement(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> crate::parser::Result<Self> {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
@@ -185,7 +196,9 @@ impl Statement {
         Ok(out)
     }
 
-    fn expression_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
+    fn expression_statement(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> crate::parser::Result<Self> {
         let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match peek {
@@ -224,7 +237,9 @@ impl Statement {
         Ok(out)
     }
 
-    fn conditional_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
+    fn conditional_statement(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> crate::parser::Result<Self> {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
@@ -267,22 +282,21 @@ impl Statement {
 
 #[cfg(test)]
 mod tests {
-    use super::super::super::lexer::Constant as TokenConstant;
-    use super::super::expression::Expression;
     use super::*;
+    use crate::lexer::{Constant as TokenConstant, Keyword};
     use rstest::rstest;
 
     #[rstest]
     #[case::expression(
         vec![
-            Token::Word("a".to_string()),
-            Token::SemiColon,
+        Token::Word("a".to_string()),
+        Token::SemiColon,
         ],
         Statement::Expression(Expression::Identifier("a".to_string()))
     )]
     #[case::empty_expression(
         vec![
-            Token::SemiColon,
+        Token::SemiColon,
         ],
         Statement::Expression(Expression::Empty)
     )]
@@ -338,7 +352,13 @@ mod tests {
         ],
         Statement::Conditional {
             condition: Expression::Identifier("a".to_string()),
-            body: Box::new(Statement::Expression(Expression::Identifier("b".to_string()))),
+            body: Box::new(
+                Statement::Compound(
+                    CompoundStatement {
+                        statements: vec![Statement::Expression(Expression::Identifier("b".to_string()))]
+                    }
+                )
+            ),
             otherwise: None,
         }
     )]
@@ -360,9 +380,21 @@ mod tests {
         ],
         Statement::Conditional {
             condition: Expression::Identifier("a".to_string()),
-            body: Box::new(Statement::Expression(Expression::Identifier("b".to_string()))),
-            otherwise: Some(Box::new(Statement::Expression(Expression::Identifier("c".to_string())))),
-        }
+            body: Box::new(
+                Statement::Compound(
+                    CompoundStatement {
+                        statements: vec![Statement::Expression(Expression::Identifier("b".to_string()))]
+                    }
+                )
+            ),
+            otherwise: Some(Box::new(
+                Statement::Compound(
+                    CompoundStatement {
+                        statements: vec![Statement::Expression(Expression::Identifier("c".to_string()))]
+                    }
+                )
+            )),
+        },
     )]
     #[case::switch(
         vec![
@@ -370,12 +402,12 @@ mod tests {
             Token::OpenParenthesis,
             Token::Word("a".to_string()),
             Token::CloseParenthesis,
-            Token::OpenBrace,
-            Token::CloseBrace,
+            Token::Word("b".to_string()),
+            Token::SemiColon,
         ],
         Statement::Switch {
             condition: Expression::Identifier("a".to_string()),
-            statement: Box::new(Statement::Expression(Expression::Empty)),
+            statement: Box::new(Statement::Expression(Expression::Identifier("b".to_string()))),
         }
     )]
     #[case::switch_default(
@@ -387,11 +419,22 @@ mod tests {
             Token::OpenBrace,
             Token::Keyword(Keyword::Default),
             Token::Colon,
+            Token::Keyword(Keyword::Break),
+            Token::SemiColon,
             Token::CloseBrace,
         ],
         Statement::Switch {
             condition: Expression::Identifier("a".to_string()),
-            statement: Box::new(Statement::Expression(Expression::Empty)),
+            statement: Box::new(
+                Statement::Compound(
+                    CompoundStatement {
+                        statements: vec![Statement::Labeled {
+                            label: Label::Default,
+                            statement: Box::new(Statement::Jump(Jump::Break)),
+                        }]
+                    }
+                )
+            ),
         }
     )]
     #[case::switch_cased(
@@ -402,19 +445,24 @@ mod tests {
             Token::CloseParenthesis,
             Token::OpenBrace,
             Token::Keyword(Keyword::Case),
-            Token::Word("1".to_string()),
+            Token::Constant(TokenConstant::SignedInteger(1)),
             Token::Colon,
-            Token::Keyword(Keyword::Break),
-            Token::SemiColon,
-            Token::Keyword(Keyword::Default),
-            Token::Colon,
-            Token::Keyword(Keyword::Break),
+            Token::Word("b".to_string()),
             Token::SemiColon,
             Token::CloseBrace,
         ],
         Statement::Switch {
             condition: Expression::Identifier("a".to_string()),
-            statement: Box::new(Statement::Expression(Expression::Empty)),
+            statement: Box::new(
+                Statement::Compound(
+                    CompoundStatement {
+                        statements: vec![Statement::Labeled {
+                            label: Label::Case(Constant::Integer(1)),
+                            statement: Box::new(Statement::Expression(Expression::Identifier("b".to_string()))),
+                        }]
+                    }
+                )
+            ),
         }
     )]
     fn test_conditional_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
@@ -425,39 +473,39 @@ mod tests {
     #[rstest]
     #[case::case(
         vec![
-            Token::Keyword(Keyword::Case),
-            Token::Constant(TokenConstant::SignedInteger(1)),
-            Token::Colon,
-            Token::Word("a".to_string()),
-            Token::SemiColon,
+        Token::Keyword(Keyword::Case),
+        Token::Constant(TokenConstant::SignedInteger(1)),
+        Token::Colon,
+        Token::Word("a".to_string()),
+        Token::SemiColon,
         ],
         Statement::Labeled {
-            label: Label::Case(Constant::Integer(1)),
-            statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
+        label: Label::Case(Constant::Integer(1)),
+        statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
         }
     )]
     #[case::default(
         vec![
-            Token::Keyword(Keyword::Default),
-            Token::Colon,
-            Token::Word("a".to_string()),
-            Token::SemiColon,
+        Token::Keyword(Keyword::Default),
+        Token::Colon,
+        Token::Word("a".to_string()),
+        Token::SemiColon,
         ],
         Statement::Labeled {
-            label: Label::Default,
-            statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
+        label: Label::Default,
+        statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
         }
     )]
     #[case::label(
         vec![
-            Token::Word("label".to_string()),
-            Token::Colon,
-            Token::Word("a".to_string()),
-            Token::SemiColon,
+        Token::Word("label".to_string()),
+        Token::Colon,
+        Token::Word("a".to_string()),
+        Token::SemiColon,
         ],
         Statement::Labeled {
-            label: Label::Label("label".to_string()),
-            statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
+        label: Label::Label("label".to_string()),
+        statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
         }
     )]
     fn test_labeled_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
@@ -468,32 +516,32 @@ mod tests {
     #[rstest]
     #[case::while_loop(
         vec![
-            Token::Keyword(Keyword::While),
-            Token::OpenParenthesis,
-            Token::Word("a".to_string()),
-            Token::CloseParenthesis,
-            Token::Word("b".to_string()),
-            Token::SemiColon,
+        Token::Keyword(Keyword::While),
+        Token::OpenParenthesis,
+        Token::Word("a".to_string()),
+        Token::CloseParenthesis,
+        Token::Word("b".to_string()),
+        Token::SemiColon,
         ],
         Statement::Loop(Loop::While {
-            condition: Expression::Identifier("a".to_string()),
-            statement: Box::new(Statement::Expression(Expression::Identifier("b".to_string()))),
+        condition: Expression::Identifier("a".to_string()),
+        statement: Box::new(Statement::Expression(Expression::Identifier("b".to_string()))),
         })
     )]
     #[case::do_while_loop(
         vec![
-            Token::Keyword(Keyword::Do),
-            Token::Word("a".to_string()),
-            Token::SemiColon,
-            Token::Keyword(Keyword::While),
-            Token::OpenParenthesis,
-            Token::Word("b".to_string()),
-            Token::CloseParenthesis,
-            Token::SemiColon,
+        Token::Keyword(Keyword::Do),
+        Token::Word("a".to_string()),
+        Token::SemiColon,
+        Token::Keyword(Keyword::While),
+        Token::OpenParenthesis,
+        Token::Word("b".to_string()),
+        Token::CloseParenthesis,
+        Token::SemiColon,
         ],
         Statement::Loop(Loop::DoWhile {
-            statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
-            condition: Expression::Identifier("b".to_string()),
+        statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
+        condition: Expression::Identifier("b".to_string()),
         })
     )]
     fn test_iteration_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
@@ -504,38 +552,38 @@ mod tests {
     #[rstest]
     #[case::goto(
         vec![
-            Token::Keyword(Keyword::Goto),
-            Token::Word("label".to_string()),
-            Token::SemiColon,
+        Token::Keyword(Keyword::Goto),
+        Token::Word("label".to_string()),
+        Token::SemiColon,
         ],
         Statement::Jump(Jump::Goto("label".to_string()))
     )]
     #[case::continue_(
         vec![
-            Token::Keyword(Keyword::Continue),
-            Token::SemiColon,
+        Token::Keyword(Keyword::Continue),
+        Token::SemiColon,
         ],
         Statement::Jump(Jump::Continue)
     )]
     #[case::break_(
         vec![
-            Token::Keyword(Keyword::Break),
-            Token::SemiColon,
+        Token::Keyword(Keyword::Break),
+        Token::SemiColon,
         ],
         Statement::Jump(Jump::Break)
     )]
     #[case::return_(
         vec![
-            Token::Keyword(Keyword::Return),
-            Token::SemiColon,
+        Token::Keyword(Keyword::Return),
+        Token::SemiColon,
         ],
         Statement::Jump(Jump::Return(None))
     )]
     #[case::return_expression(
         vec![
-            Token::Keyword(Keyword::Return),
-            Token::Word("a".to_string()),
-            Token::SemiColon,
+        Token::Keyword(Keyword::Return),
+        Token::Word("a".to_string()),
+        Token::SemiColon,
         ],
         Statement::Jump(Jump::Return(Some(Expression::Identifier("a".to_string()))))
     )]
