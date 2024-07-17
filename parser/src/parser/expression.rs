@@ -64,6 +64,18 @@ pub enum Expression {
         right: Box<Expression>,
         operator: BitwiseOperator,
     },
+    Logical {
+        left: Box<Expression>,
+        right: Box<Expression>,
+        operator: LogicalOperator,
+    },
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum LogicalOperator {
+    And,
+    Or,
 }
 
 #[derive(Debug)]
@@ -156,6 +168,60 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
+    fn logical_or_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let logical_and_expression = Self::logical_and_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(logical_and_expression),
+        };
+
+        let out = match peek {
+            Token::LogicalOr => {
+                tokens.next();
+                let right = Self::logical_or_expression(tokens, context)?;
+                Expression::Logical {
+                    left: Box::new(logical_and_expression),
+                    right: Box::new(right),
+                    operator: LogicalOperator::Or,
+                }
+            }
+            _ => logical_and_expression,
+        };
+
+        Ok(out)
+    }
+
+    fn logical_and_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let inclusive_or_expression = Self::inclusive_or_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(inclusive_or_expression),
+        };
+
+        let out = match peek {
+            Token::LogicalAnd => {
+                tokens.next();
+                let right = Self::inclusive_or_expression(tokens, context)?;
+                Expression::Logical {
+                    left: Box::new(inclusive_or_expression),
+                    right: Box::new(right),
+                    operator: LogicalOperator::And,
+                }
+            }
+            _ => inclusive_or_expression,
+        };
+
+        Ok(out)
+    }
+
     fn inclusive_or_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -1197,6 +1263,43 @@ mod tests {
         let result =
             Expression::inclusive_or_expression(&mut input.into_iter().peekable(), &context)
                 .unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_logical_and_expression() {
+        let input = vec![
+            Token::Word("foo".to_string()),
+            Token::LogicalAnd,
+            Token::Word("bar".to_string()),
+        ];
+        let expected = Expression::Logical {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: LogicalOperator::And,
+        };
+        let context = Context::default();
+        let result =
+            Expression::logical_and_expression(&mut input.into_iter().peekable(), &context)
+                .unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_logical_or_expression() {
+        let input = vec![
+            Token::Word("foo".to_string()),
+            Token::LogicalOr,
+            Token::Word("bar".to_string()),
+        ];
+        let expected = Expression::Logical {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: LogicalOperator::Or,
+        };
+        let context = Context::default();
+        let result =
+            Expression::logical_or_expression(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 
