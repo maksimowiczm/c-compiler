@@ -9,6 +9,7 @@ use TokenAssignment::*;
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum Expression {
+    Empty,
     Identifier(String),
     Constant(Constant),
     String(String),
