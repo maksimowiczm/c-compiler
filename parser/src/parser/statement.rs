@@ -23,6 +23,16 @@ pub enum Statement {
     },
     Compound(Vec<Statement>),
     Loop(Loop),
+    Jump(Jump),
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum Jump {
+    Goto(String),
+    Continue,
+    Break,
+    Return(Option<Expression>),
 }
 
 #[derive(Debug)]
@@ -65,6 +75,10 @@ impl Parse for Statement {
             Token::Keyword(Keyword::While) | Token::Keyword(Keyword::Do) => {
                 Statement::iteration_statement(tokens, context)?
             }
+            Token::Keyword(Keyword::Goto)
+            | Token::Keyword(Keyword::Continue)
+            | Token::Keyword(Keyword::Break)
+            | Token::Keyword(Keyword::Return) => Statement::jump_statement(tokens, context)?,
             _ => Statement::expression_statement(tokens, context)?,
         };
 
@@ -73,6 +87,43 @@ impl Parse for Statement {
 }
 
 impl Statement {
+    fn jump_statement(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        let out = match token {
+            Token::Keyword(Keyword::Goto) => {
+                let label = match tokens.next().ok_or(ParserError::UnexpectedEndOfInput)? {
+                    Token::Word(label) => label,
+                    _ => return Err(ParserError::ExpectedIdentifier),
+                };
+                Self::expect_token(tokens, Token::SemiColon)?;
+                Statement::Jump(Jump::Goto(label))
+            }
+            Token::Keyword(Keyword::Continue) => {
+                Self::expect_token(tokens, Token::SemiColon)?;
+                Statement::Jump(Jump::Continue)
+            }
+            Token::Keyword(Keyword::Break) => {
+                Self::expect_token(tokens, Token::SemiColon)?;
+                Statement::Jump(Jump::Break)
+            }
+            Token::Keyword(Keyword::Return) => {
+                let expression = match tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)? {
+                    Token::SemiColon => None,
+                    _ => Some(Expression::parse(tokens, context)?),
+                };
+                Self::expect_token(tokens, Token::SemiColon)?;
+                Statement::Jump(Jump::Return(expression))
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(out)
+    }
+
     fn iteration_statement(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -86,7 +137,10 @@ impl Statement {
                 Self::expect_token(tokens, Token::CloseParenthesis)?;
                 let statement = Box::new(Statement::parse(tokens, context)?);
 
-                Statement::Loop(Loop::While { condition, statement })
+                Statement::Loop(Loop::While {
+                    condition,
+                    statement,
+                })
             }
             Token::Keyword(Keyword::Do) => {
                 let statement = Box::new(Statement::parse(tokens, context)?);
@@ -96,7 +150,10 @@ impl Statement {
                 Self::expect_token(tokens, Token::CloseParenthesis)?;
                 Self::expect_token(tokens, Token::SemiColon)?;
 
-                Statement::Loop(Loop::DoWhile { statement, condition })
+                Statement::Loop(Loop::DoWhile {
+                    statement,
+                    condition,
+                })
             }
             _ => unreachable!(),
         };
@@ -455,6 +512,51 @@ mod tests {
         let context = Context::default();
         let result =
             Statement::iteration_statement(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::goto(
+        vec![
+            Token::Keyword(Keyword::Goto),
+            Token::Word("label".to_string()),
+            Token::SemiColon,
+        ],
+        Statement::Jump(Jump::Goto("label".to_string()))
+    )]
+    #[case::continue_(
+        vec![
+            Token::Keyword(Keyword::Continue),
+            Token::SemiColon,
+        ],
+        Statement::Jump(Jump::Continue)
+    )]
+    #[case::break_(
+        vec![
+            Token::Keyword(Keyword::Break),
+            Token::SemiColon,
+        ],
+        Statement::Jump(Jump::Break)
+    )]
+    #[case::return_(
+        vec![
+            Token::Keyword(Keyword::Return),
+            Token::SemiColon,
+        ],
+        Statement::Jump(Jump::Return(None))
+    )]
+    #[case::return_expression(
+        vec![
+            Token::Keyword(Keyword::Return),
+            Token::Word("a".to_string()),
+            Token::SemiColon,
+        ],
+        Statement::Jump(Jump::Return(Some(Expression::Identifier("a".to_string()))))
+    )]
+    fn test_jump_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
+        let context = Context::default();
+        let result =
+            Statement::jump_statement(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 }
