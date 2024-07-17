@@ -69,6 +69,11 @@ pub enum Expression {
         right: Box<Expression>,
         operator: LogicalOperator,
     },
+    Ternary {
+        condition: Box<Expression>,
+        true_expression: Box<Expression>,
+        false_expression: Box<Expression>,
+    },
 }
 
 #[derive(Debug)]
@@ -168,6 +173,35 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
+    fn conditional_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let logical_or_expression = Self::logical_or_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(logical_or_expression),
+        };
+
+        let out = match peek {
+            Token::QuestionMark => {
+                tokens.next();
+                let true_expression = Self::parse(tokens, context)?;
+                Self::expect_token(tokens, Token::Colon)?;
+                let false_expression = Self::conditional_expression(tokens, context)?;
+                Expression::Ternary {
+                    condition: Box::new(logical_or_expression),
+                    true_expression: Box::new(true_expression),
+                    false_expression: Box::new(false_expression),
+                }
+            }
+            _ => logical_or_expression,
+        };
+
+        Ok(out)
+    }
+
     fn logical_or_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -1300,6 +1334,27 @@ mod tests {
         let context = Context::default();
         let result =
             Expression::logical_or_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_conditional_expression() {
+        let input = vec![
+            Token::Word("foo".to_string()),
+            Token::QuestionMark,
+            Token::Word("bar".to_string()),
+            Token::Colon,
+            Token::Word("baz".to_string()),
+        ];
+        let expected = Expression::Ternary {
+            condition: Box::new(Expression::Identifier("foo".to_string())),
+            true_expression: Box::new(Expression::Identifier("bar".to_string())),
+            false_expression: Box::new(Expression::Identifier("baz".to_string())),
+        };
+        let context = Context::default();
+        let result =
+            Expression::conditional_expression(&mut input.into_iter().peekable(), &context)
+                .unwrap();
         assert_eq!(result, expected);
     }
 
