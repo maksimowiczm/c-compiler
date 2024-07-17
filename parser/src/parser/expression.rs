@@ -54,6 +54,18 @@ pub enum Expression {
         right: Box<Expression>,
         operator: RelationOperator,
     },
+    Equality {
+        left: Box<Expression>,
+        right: Box<Expression>,
+        operator: EqualityOperator,
+    },
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum EqualityOperator {
+    Equal,
+    NotEqual,
 }
 
 #[derive(Debug)]
@@ -131,6 +143,32 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
+    fn equality_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let relation_expression = Self::relation_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(relation_expression),
+        };
+
+        let operator = match peek {
+            Token::Equal => EqualityOperator::Equal,
+            Token::NotEqual => EqualityOperator::NotEqual,
+            _ => return Ok(relation_expression),
+        };
+
+        tokens.next();
+        let right = Self::relation_expression(tokens, context)?;
+        Ok(Expression::Equality {
+            left: Box::new(relation_expression),
+            right: Box::new(right),
+            operator,
+        })
+    }
+
     fn relation_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -977,6 +1015,38 @@ mod tests {
         let context = Context::default();
         let result =
             Expression::relation_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::equal(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Equal,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Equality {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: EqualityOperator::Equal,
+        },
+    )]
+    #[case::not_equal(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::NotEqual,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Equality {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: EqualityOperator::NotEqual,
+        },
+    )]
+    fn test_equality_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
+        let context = Context::default();
+        let result =
+            Expression::equality_expression(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 
