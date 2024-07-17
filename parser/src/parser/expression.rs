@@ -49,6 +49,20 @@ pub enum Expression {
         right: Box<Expression>,
         operator: ShiftOperator,
     },
+    Relation {
+        left: Box<Expression>,
+        right: Box<Expression>,
+        operator: RelationOperator,
+    },
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum RelationOperator {
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
 }
 
 #[derive(Debug)]
@@ -117,6 +131,34 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
+    fn relation_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let shift_expression = Self::shift_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(shift_expression),
+        };
+
+        let operator = match peek {
+            Token::LessThan => RelationOperator::LessThan,
+            Token::LessThanOrEqual => RelationOperator::LessThanOrEqual,
+            Token::GreaterThan => RelationOperator::GreaterThan,
+            Token::GreaterThanOrEqual => RelationOperator::GreaterThanOrEqual,
+            _ => return Ok(shift_expression),
+        };
+
+        tokens.next();
+        let right = Self::shift_expression(tokens, context)?;
+        Ok(Expression::Relation {
+            left: Box::new(shift_expression),
+            right: Box::new(right),
+            operator,
+        })
+    }
+
     fn shift_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -879,6 +921,62 @@ mod tests {
         let context = Context::default();
         let result =
             Expression::shift_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::less_than(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::LessThan,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Relation {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: RelationOperator::LessThan,
+        },
+    )]
+    #[case::less_than_or_equal(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::LessThanOrEqual,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Relation {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: RelationOperator::LessThanOrEqual,
+        },
+    )]
+    #[case::greater_than(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::GreaterThan,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Relation {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: RelationOperator::GreaterThan,
+        },
+    )]
+    #[case::greater_than_or_equal(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::GreaterThanOrEqual,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Relation {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: RelationOperator::GreaterThanOrEqual,
+        },
+    )]
+    fn test_relation_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
+        let context = Context::default();
+        let result =
+            Expression::relation_expression(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 
