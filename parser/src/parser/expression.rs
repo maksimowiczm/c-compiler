@@ -39,6 +39,18 @@ pub enum Expression {
         right: Box<Expression>,
         operator: MultiplicativeOperator,
     },
+    Additive {
+        left: Box<Expression>,
+        right: Box<Expression>,
+        operator: AdditiveOperator,
+    },
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum AdditiveOperator {
+    Addition,
+    Subtraction,
 }
 
 #[derive(Debug)]
@@ -93,6 +105,42 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
+    fn additive_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let multiplicative_expression = Self::multiplicative_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(multiplicative_expression),
+        };
+
+        let out = match peek {
+            Token::Addition => {
+                tokens.next();
+                let right = Self::multiplicative_expression(tokens, context)?;
+                Expression::Additive {
+                    left: Box::new(multiplicative_expression),
+                    right: Box::new(right),
+                    operator: AdditiveOperator::Addition,
+                }
+            }
+            Token::Negation => {
+                tokens.next();
+                let right = Self::multiplicative_expression(tokens, context)?;
+                Expression::Additive {
+                    left: Box::new(multiplicative_expression),
+                    right: Box::new(right),
+                    operator: AdditiveOperator::Subtraction,
+                }
+            }
+            _ => multiplicative_expression,
+        };
+
+        Ok(out)
+    }
+
     fn multiplicative_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -720,6 +768,38 @@ mod tests {
         let result =
             Expression::multiplicative_expression(&mut input.into_iter().peekable(), &context)
                 .unwrap();
+    }
+
+    #[rstest]
+    #[case::addition(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Addition,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Additive {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AdditiveOperator::Addition,
+        },
+    )]
+    #[case::subtraction(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Negation,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Additive {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AdditiveOperator::Subtraction,
+        },
+    )]
+    fn test_additive_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
+        let context = Context::default();
+        let result =
+            Expression::additive_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
     }
 
     #[rstest]
