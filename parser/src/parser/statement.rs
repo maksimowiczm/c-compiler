@@ -1,4 +1,5 @@
 use crate::lexer::{Keyword, Token};
+use crate::parser::constant::Constant;
 use crate::parser::expression::Expression;
 use crate::parser::{Context, Parse, ParserError};
 use std::iter::Peekable;
@@ -16,13 +17,24 @@ pub enum Statement {
         condition: Expression,
         statement: Box<Statement>,
     },
+    Labeled {
+        label: Label,
+        statement: Box<Statement>,
+    },
 }
 
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum Label {
+    Label(String),
+    Case(Constant),
+    Default,
+}
+
+type Result = std::result::Result<Statement, ParserError>;
+
 impl Parse for Statement {
-    fn parse(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result<Self, ParserError>
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>, context: &Context) -> Result
     where
         Self: Sized,
     {
@@ -32,6 +44,9 @@ impl Parse for Statement {
             Token::Keyword(Keyword::If) | Token::Keyword(Keyword::Switch) => {
                 Statement::conditional_statement(tokens, context)?
             }
+            Token::Keyword(Keyword::Case) | Token::Keyword(Keyword::Default) => {
+                Statement::labeled_statement(tokens, context)?
+            }
             _ => Statement::expression_statement(tokens, context)?,
         };
 
@@ -40,10 +55,40 @@ impl Parse for Statement {
 }
 
 impl Statement {
+    fn labeled_statement(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        let out = match token {
+            Token::Keyword(Keyword::Case) => {
+                let constant = Constant::parse(tokens, context)?;
+                Self::expect_token(tokens, Token::Colon)?;
+                let statement = Box::new(Statement::parse(tokens, context)?);
+                Statement::Labeled {
+                    label: Label::Case(constant),
+                    statement,
+                }
+            }
+            Token::Keyword(Keyword::Default) => {
+                Self::expect_token(tokens, Token::Colon)?;
+                let statement = Box::new(Statement::parse(tokens, context)?);
+                Statement::Labeled {
+                    label: Label::Default,
+                    statement,
+                }
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(out)
+    }
+
     fn expression_statement(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
-    ) -> Result<Self, ParserError> {
+    ) -> Result {
         let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match peek {
@@ -52,7 +97,23 @@ impl Statement {
                 Statement::Expression(Expression::Empty)
             }
             _ => {
-                let statement = Expression::parse(tokens, context).map(Statement::Expression)?;
+                let expression = Expression::parse(tokens, context)?;
+
+                // might be labeled statement
+                if let Token::Colon = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)? {
+                    tokens.next();
+                    let statement = Box::new(Statement::parse(tokens, context)?);
+                    return Ok(Statement::Labeled {
+                        label: Label::Label(
+                            expression
+                                .get_identifier()
+                                .ok_or(ParserError::ExpectedIdentifier)?,
+                        ),
+                        statement,
+                    });
+                }
+
+                let statement = Statement::Expression(expression);
                 Self::expect_token(tokens, Token::SemiColon)?;
                 statement
             }
@@ -64,7 +125,7 @@ impl Statement {
     fn conditional_statement(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
-    ) -> Result<Self, ParserError> {
+    ) -> Result {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
@@ -107,6 +168,7 @@ impl Statement {
 
 #[cfg(test)]
 mod tests {
+    use super::super::super::lexer::Constant as TokenConstant;
     use super::super::expression::Expression;
     use super::*;
     use rstest::rstest;
@@ -262,6 +324,50 @@ mod tests {
         let context = Context::default();
         let result =
             Statement::conditional_statement(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::case(
+        vec![
+            Token::Keyword(Keyword::Case),
+            Token::Constant(TokenConstant::SignedInteger(1)),
+            Token::Colon,
+            Token::Word("a".to_string()),
+            Token::SemiColon,
+        ],
+        Statement::Labeled {
+            label: Label::Case(Constant::Integer(1)),
+            statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
+        }
+    )]
+    #[case::default(
+        vec![
+            Token::Keyword(Keyword::Default),
+            Token::Colon,
+            Token::Word("a".to_string()),
+            Token::SemiColon,
+        ],
+        Statement::Labeled {
+            label: Label::Default,
+            statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
+        }
+    )]
+    #[case::label(
+        vec![
+            Token::Word("label".to_string()),
+            Token::Colon,
+            Token::Word("a".to_string()),
+            Token::SemiColon,
+        ],
+        Statement::Labeled {
+            label: Label::Label("label".to_string()),
+            statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
+        }
+    )]
+    fn test_labeled_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
+        let context = Context::default();
+        let result = Statement::parse(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 }

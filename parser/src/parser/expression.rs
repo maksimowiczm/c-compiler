@@ -871,7 +871,7 @@ impl Expression {
 }
 
 impl Expression {
-    fn get_identifier(self) -> Option<String> {
+    pub(crate) fn get_identifier(self) -> Option<String> {
         match self {
             Expression::Identifier(identifier) => Some(identifier),
             Expression::StructMember { member, .. } => Some(member),

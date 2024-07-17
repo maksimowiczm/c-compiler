@@ -21,18 +21,7 @@ pub enum ParserError {
         expected: Vec<Token>,
         near_tokens: Vec<Token>,
     },
-    #[display("Two definitions of function {:?}", name)]
-    TwoDefinitionsOfFunction {
-        name: String,
-    },
-    #[display("Two different definitions of function {:?}", name)]
-    TwoDifferentDeclarationsOfFunction {
-        name: String,
-    },
-    #[display("Function definition doesn't match declaration {:?}", name)]
-    DefinitionDoesntMatchDeclaration {
-        name: String,
-    },
+    ExpectedIdentifier,
 }
 
 trait Parse {
