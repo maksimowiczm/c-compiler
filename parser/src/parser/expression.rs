@@ -82,6 +82,10 @@ pub enum Expression {
         expression: Box<Expression>,
         operator: AssignmentOperator,
     },
+    Comma {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
 }
 
 #[derive(Debug)]
@@ -190,7 +194,25 @@ impl Parse for Expression {
     where
         Self: Sized,
     {
-        Expression::primary_expression(tokens, context)
+        let expression = Expression::assignment_expression(tokens, context)?;
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(expression),
+        };
+
+        let out = match peek {
+            Token::Comma => {
+                tokens.next();
+                let right = Self::parse(tokens, context)?;
+                Expression::Comma {
+                    left: Box::new(expression),
+                    right: Box::new(right),
+                }
+            }
+            _ => expression,
+        };
+
+        Ok(out)
     }
 }
 
@@ -1562,6 +1584,22 @@ mod tests {
         let context = Context::default();
         let result =
             Expression::assignment_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_comma_expression() {
+        let input = vec![
+            Token::Word("foo".to_string()),
+            Token::Comma,
+            Token::Word("bar".to_string()),
+        ];
+        let expected = Expression::Comma {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+        };
+        let context = Context::default();
+        let result = Expression::parse(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 
