@@ -115,6 +115,23 @@ pub enum Keyword {
     _ThreadLocal,
 }
 
+impl Keyword {
+    pub(crate) fn is_type(&self) -> bool {
+        matches!(
+            self,
+            Keyword::Char
+                | Keyword::Double
+                | Keyword::Float
+                | Keyword::Int
+                | Keyword::Long
+                | Keyword::Short
+                | Keyword::Signed
+                | Keyword::Unsigned
+                | Keyword::Void
+        )
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Constant {
     // every integer is 8 bytes
