@@ -44,6 +44,18 @@ pub enum Expression {
         right: Box<Expression>,
         operator: AdditiveOperator,
     },
+    Shift {
+        left: Box<Expression>,
+        right: Box<Expression>,
+        operator: ShiftOperator,
+    },
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum ShiftOperator {
+    Left,
+    Right,
 }
 
 #[derive(Debug)]
@@ -105,6 +117,42 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
+    fn shift_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let additive_expression = Self::additive_expression(tokens, context)?;
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(additive_expression),
+        };
+
+        let out = match peek {
+            Token::ShiftLeft => {
+                tokens.next();
+                let right = Self::additive_expression(tokens, context)?;
+                Expression::Shift {
+                    left: Box::new(additive_expression),
+                    right: Box::new(right),
+                    operator: ShiftOperator::Left,
+                }
+            }
+            Token::ShiftRight => {
+                tokens.next();
+                let right = Self::additive_expression(tokens, context)?;
+                Expression::Shift {
+                    left: Box::new(additive_expression),
+                    right: Box::new(right),
+                    operator: ShiftOperator::Right,
+                }
+            }
+            _ => additive_expression,
+        };
+
+        Ok(out)
+    }
+
     fn additive_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -799,6 +847,38 @@ mod tests {
         let context = Context::default();
         let result =
             Expression::additive_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::left_shift(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::ShiftLeft,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Shift {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: ShiftOperator::Left,
+        },
+    )]
+    #[case::right_shift(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::ShiftRight,
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Shift {
+            left: Box::new(Expression::Identifier("foo".to_string())),
+            right: Box::new(Expression::Identifier("bar".to_string())),
+            operator: ShiftOperator::Right,
+        },
+    )]
+    fn test_shift_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
+        let context = Context::default();
+        let result =
+            Expression::shift_expression(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 
