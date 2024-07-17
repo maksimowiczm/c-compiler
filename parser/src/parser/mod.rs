@@ -1,10 +1,10 @@
 pub mod constant;
 pub mod expression;
-mod statement;
+pub mod statement;
+pub mod type_info;
 
 use crate::lexer::Token;
 use derive_more::{Display, Error};
-use std::collections::HashMap;
 use std::iter::Peekable;
 
 #[derive(Error, Display, Debug)]
@@ -21,14 +21,28 @@ pub enum ParserError {
         expected: Vec<Token>,
         near_tokens: Vec<Token>,
     },
-    ExpectedIdentifier,
+    #[display(
+        "Unexpected token {:?}. Expected type, near tokens: {:?}",
+        unexpected,
+        near_tokens
+    )]
+    ExpectedType {
+        unexpected: Token,
+        near_tokens: Vec<Token>,
+    },
+    #[display(
+        "Unexpected token {:?}. Expected identifier, near tokens: {:?}",
+        unexpected,
+        near_tokens
+    )]
+    ExpectedIdentifier {
+        unexpected: Token,
+        near_tokens: Vec<Token>,
+    },
 }
 
 trait Parse {
-    fn parse(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result<Self, ParserError>
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError>
     where
         Self: Sized;
 
@@ -60,18 +74,5 @@ trait Parse {
         }
 
         Ok(())
-    }
-}
-
-#[derive(Default)]
-struct Context {
-    enums: HashMap<String, Vec<String>>,
-}
-
-impl Context {
-    fn contains_enumeration_constant(&self, constant: &str) -> bool {
-        self.enums
-            .values()
-            .any(|values| values.contains(&constant.to_string()))
     }
 }

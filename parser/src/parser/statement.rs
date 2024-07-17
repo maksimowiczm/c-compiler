@@ -1,7 +1,7 @@
 use crate::lexer::{Keyword, Token};
 use crate::parser::constant::Constant;
 use crate::parser::expression::Expression;
-use crate::parser::{Context, Parse, ParserError};
+use crate::parser::{Parse, ParserError};
 use std::iter::Peekable;
 
 #[derive(Debug)]
@@ -59,7 +59,7 @@ pub enum Label {
 type Result = std::result::Result<Statement, ParserError>;
 
 impl Parse for Statement {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>, context: &Context) -> Result
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result
     where
         Self: Sized,
     {
@@ -67,19 +67,19 @@ impl Parse for Statement {
 
         let out = match peek {
             Token::Keyword(Keyword::If) | Token::Keyword(Keyword::Switch) => {
-                Statement::conditional_statement(tokens, context)?
+                Statement::conditional_statement(tokens)?
             }
             Token::Keyword(Keyword::Case) | Token::Keyword(Keyword::Default) => {
-                Statement::labeled_statement(tokens, context)?
+                Statement::labeled_statement(tokens)?
             }
             Token::Keyword(Keyword::While) | Token::Keyword(Keyword::Do) => {
-                Statement::iteration_statement(tokens, context)?
+                Statement::iteration_statement(tokens)?
             }
             Token::Keyword(Keyword::Goto)
             | Token::Keyword(Keyword::Continue)
             | Token::Keyword(Keyword::Break)
-            | Token::Keyword(Keyword::Return) => Statement::jump_statement(tokens, context)?,
-            _ => Statement::expression_statement(tokens, context)?,
+            | Token::Keyword(Keyword::Return) => Statement::jump_statement(tokens)?,
+            _ => Statement::expression_statement(tokens)?,
         };
 
         Ok(out)
@@ -87,17 +87,19 @@ impl Parse for Statement {
 }
 
 impl Statement {
-    fn jump_statement(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
+    fn jump_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
             Token::Keyword(Keyword::Goto) => {
                 let label = match tokens.next().ok_or(ParserError::UnexpectedEndOfInput)? {
                     Token::Word(label) => label,
-                    _ => return Err(ParserError::ExpectedIdentifier),
+                    token => {
+                        return Err(ParserError::ExpectedIdentifier {
+                            unexpected: token,
+                            near_tokens: tokens.take(6).collect(),
+                        })
+                    }
                 };
                 Self::expect_token(tokens, Token::SemiColon)?;
                 Statement::Jump(Jump::Goto(label))
@@ -113,7 +115,7 @@ impl Statement {
             Token::Keyword(Keyword::Return) => {
                 let expression = match tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)? {
                     Token::SemiColon => None,
-                    _ => Some(Expression::parse(tokens, context)?),
+                    _ => Some(Expression::parse(tokens)?),
                 };
                 Self::expect_token(tokens, Token::SemiColon)?;
                 Statement::Jump(Jump::Return(expression))
@@ -124,18 +126,15 @@ impl Statement {
         Ok(out)
     }
 
-    fn iteration_statement(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
+    fn iteration_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
             Token::Keyword(Keyword::While) => {
                 Self::expect_token(tokens, Token::OpenParenthesis)?;
-                let condition = Expression::parse(tokens, context)?;
+                let condition = Expression::parse(tokens)?;
                 Self::expect_token(tokens, Token::CloseParenthesis)?;
-                let statement = Box::new(Statement::parse(tokens, context)?);
+                let statement = Box::new(Statement::parse(tokens)?);
 
                 Statement::Loop(Loop::While {
                     condition,
@@ -143,10 +142,10 @@ impl Statement {
                 })
             }
             Token::Keyword(Keyword::Do) => {
-                let statement = Box::new(Statement::parse(tokens, context)?);
+                let statement = Box::new(Statement::parse(tokens)?);
                 Self::expect_token(tokens, Token::Keyword(Keyword::While))?;
                 Self::expect_token(tokens, Token::OpenParenthesis)?;
-                let condition = Expression::parse(tokens, context)?;
+                let condition = Expression::parse(tokens)?;
                 Self::expect_token(tokens, Token::CloseParenthesis)?;
                 Self::expect_token(tokens, Token::SemiColon)?;
 
@@ -161,17 +160,14 @@ impl Statement {
         Ok(out)
     }
 
-    fn labeled_statement(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
+    fn labeled_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
             Token::Keyword(Keyword::Case) => {
-                let constant = Constant::parse(tokens, context)?;
+                let constant = Constant::parse(tokens)?;
                 Self::expect_token(tokens, Token::Colon)?;
-                let statement = Box::new(Statement::parse(tokens, context)?);
+                let statement = Box::new(Statement::parse(tokens)?);
                 Statement::Labeled {
                     label: Label::Case(constant),
                     statement,
@@ -179,7 +175,7 @@ impl Statement {
             }
             Token::Keyword(Keyword::Default) => {
                 Self::expect_token(tokens, Token::Colon)?;
-                let statement = Box::new(Statement::parse(tokens, context)?);
+                let statement = Box::new(Statement::parse(tokens)?);
                 Statement::Labeled {
                     label: Label::Default,
                     statement,
@@ -191,10 +187,7 @@ impl Statement {
         Ok(out)
     }
 
-    fn expression_statement(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
+    fn expression_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
         let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match peek {
@@ -203,18 +196,23 @@ impl Statement {
                 Statement::Expression(Expression::Empty)
             }
             _ => {
-                let expression = Expression::parse(tokens, context)?;
+                let expression = Expression::parse(tokens)?;
 
                 // might be labeled statement
                 if let Token::Colon = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)? {
                     tokens.next();
-                    let statement = Box::new(Statement::parse(tokens, context)?);
+                    let peek = tokens
+                        .peek()
+                        .ok_or(ParserError::UnexpectedEndOfInput)?
+                        .clone();
+                    let statement = Box::new(Statement::parse(tokens)?);
                     return Ok(Statement::Labeled {
-                        label: Label::Label(
-                            expression
-                                .get_identifier()
-                                .ok_or(ParserError::ExpectedIdentifier)?,
-                        ),
+                        label: Label::Label(expression.get_identifier().ok_or(
+                            ParserError::ExpectedIdentifier {
+                                unexpected: peek,
+                                near_tokens: tokens.take(6).collect(),
+                            },
+                        )?),
                         statement,
                     });
                 }
@@ -228,22 +226,19 @@ impl Statement {
         Ok(out)
     }
 
-    fn conditional_statement(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
+    fn conditional_statement(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
         let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
             Token::Keyword(Keyword::If) => {
                 Self::expect_token(tokens, Token::OpenParenthesis)?;
-                let condition = Expression::parse(tokens, context)?;
+                let condition = Expression::parse(tokens)?;
                 Self::expect_token(tokens, Token::CloseParenthesis)?;
-                let body = Box::new(Statement::parse(tokens, context)?);
+                let body = Box::new(Statement::parse(tokens)?);
                 let otherwise = match tokens.peek() {
                     Some(Token::Keyword(Keyword::Else)) => {
                         tokens.next();
-                        Some(Box::new(Statement::parse(tokens, context)?))
+                        Some(Box::new(Statement::parse(tokens)?))
                     }
                     _ => None,
                 };
@@ -256,9 +251,9 @@ impl Statement {
             }
             Token::Keyword(Keyword::Switch) => {
                 Self::expect_token(tokens, Token::OpenParenthesis)?;
-                let condition = Expression::parse(tokens, context)?;
+                let condition = Expression::parse(tokens)?;
                 Self::expect_token(tokens, Token::CloseParenthesis)?;
-                let statement = Box::new(Statement::parse(tokens, context)?);
+                let statement = Box::new(Statement::parse(tokens)?);
 
                 Statement::Switch {
                     condition,
@@ -294,9 +289,7 @@ mod tests {
         Statement::Expression(Expression::Empty)
     )]
     fn test_expression_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
-        let context = Context::default();
-        let result =
-            Statement::expression_statement(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Statement::expression_statement(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -427,9 +420,7 @@ mod tests {
         }
     )]
     fn test_conditional_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
-        let context = Context::default();
-        let result =
-            Statement::conditional_statement(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Statement::conditional_statement(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -472,8 +463,7 @@ mod tests {
         }
     )]
     fn test_labeled_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
-        let context = Context::default();
-        let result = Statement::parse(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Statement::parse(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -509,9 +499,7 @@ mod tests {
         })
     )]
     fn test_iteration_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
-        let context = Context::default();
-        let result =
-            Statement::iteration_statement(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Statement::iteration_statement(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -554,9 +542,7 @@ mod tests {
         Statement::Jump(Jump::Return(Some(Expression::Identifier("a".to_string()))))
     )]
     fn test_jump_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
-        let context = Context::default();
-        let result =
-            Statement::jump_statement(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Statement::jump_statement(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 }

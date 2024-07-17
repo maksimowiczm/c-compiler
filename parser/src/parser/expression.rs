@@ -2,7 +2,8 @@ use crate::lexer::{
     Assignment as TokenAssignment, Constant as TokenConstant, Keyword, StringLiteral, Token,
 };
 use crate::parser::constant::Constant;
-use crate::parser::{Context, Parse, ParserError};
+use crate::parser::type_info::TypeInfo;
+use crate::parser::{Parse, ParserError};
 use std::iter::Peekable;
 use TokenAssignment::*;
 
@@ -160,13 +161,6 @@ pub enum MultiplicativeOperator {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
-pub enum TypeInfo {
-    Keyword(String),
-    Struct(String),
-}
-
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq))]
 pub enum UnaryOperator {
     AddressOf,
     Dereference,
@@ -191,11 +185,11 @@ pub enum InstantOperator {
 }
 
 impl Parse for Expression {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>, context: &Context) -> Result
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result
     where
         Self: Sized,
     {
-        let expression = Expression::assignment_expression(tokens, context)?;
+        let expression = Expression::assignment_expression(tokens)?;
         let peek = match tokens.peek() {
             Some(token) => token,
             None => return Ok(expression),
@@ -204,7 +198,7 @@ impl Parse for Expression {
         let out = match peek {
             Token::Comma => {
                 tokens.next();
-                let right = Self::parse(tokens, context)?;
+                let right = Self::parse(tokens)?;
                 Expression::Comma {
                     left: Box::new(expression),
                     right: Box::new(right),
@@ -220,11 +214,8 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
-    fn assignment_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let conditional_expression = Self::conditional_expression(tokens, context)?;
+    fn assignment_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let conditional_expression = Self::conditional_expression(tokens)?;
 
         let identifier = match &conditional_expression {
             Expression::Identifier(id) => id,
@@ -252,7 +243,7 @@ impl Expression {
         };
 
         tokens.next();
-        let expression = Self::assignment_expression(tokens, context)?;
+        let expression = Self::assignment_expression(tokens)?;
 
         Ok(Expression::Assignment {
             variable: identifier.to_string(),
@@ -261,11 +252,8 @@ impl Expression {
         })
     }
 
-    fn conditional_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let logical_or_expression = Self::logical_or_expression(tokens, context)?;
+    fn conditional_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let logical_or_expression = Self::logical_or_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -275,9 +263,9 @@ impl Expression {
         let out = match peek {
             Token::QuestionMark => {
                 tokens.next();
-                let true_expression = Self::parse(tokens, context)?;
+                let true_expression = Self::parse(tokens)?;
                 Self::expect_token(tokens, Token::Colon)?;
-                let false_expression = Self::conditional_expression(tokens, context)?;
+                let false_expression = Self::conditional_expression(tokens)?;
                 Expression::Ternary {
                     condition: Box::new(logical_or_expression),
                     true_expression: Box::new(true_expression),
@@ -290,11 +278,8 @@ impl Expression {
         Ok(out)
     }
 
-    fn logical_or_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let logical_and_expression = Self::logical_and_expression(tokens, context)?;
+    fn logical_or_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let logical_and_expression = Self::logical_and_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -304,7 +289,7 @@ impl Expression {
         let out = match peek {
             Token::LogicalOr => {
                 tokens.next();
-                let right = Self::logical_or_expression(tokens, context)?;
+                let right = Self::logical_or_expression(tokens)?;
                 Expression::Logical {
                     left: Box::new(logical_and_expression),
                     right: Box::new(right),
@@ -317,11 +302,8 @@ impl Expression {
         Ok(out)
     }
 
-    fn logical_and_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let inclusive_or_expression = Self::inclusive_or_expression(tokens, context)?;
+    fn logical_and_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let inclusive_or_expression = Self::inclusive_or_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -331,7 +313,7 @@ impl Expression {
         let out = match peek {
             Token::LogicalAnd => {
                 tokens.next();
-                let right = Self::inclusive_or_expression(tokens, context)?;
+                let right = Self::inclusive_or_expression(tokens)?;
                 Expression::Logical {
                     left: Box::new(inclusive_or_expression),
                     right: Box::new(right),
@@ -344,11 +326,8 @@ impl Expression {
         Ok(out)
     }
 
-    fn inclusive_or_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let exclusive_or_expression = Self::exclusive_or_expression(tokens, context)?;
+    fn inclusive_or_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let exclusive_or_expression = Self::exclusive_or_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -358,7 +337,7 @@ impl Expression {
         let out = match peek {
             Token::BitwiseOr => {
                 tokens.next();
-                let right = Self::exclusive_or_expression(tokens, context)?;
+                let right = Self::exclusive_or_expression(tokens)?;
                 Expression::Bitwise {
                     left: Box::new(exclusive_or_expression),
                     right: Box::new(right),
@@ -371,11 +350,8 @@ impl Expression {
         Ok(out)
     }
 
-    fn exclusive_or_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let and_expression = Self::and_expression(tokens, context)?;
+    fn exclusive_or_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let and_expression = Self::and_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -385,7 +361,7 @@ impl Expression {
         let out = match peek {
             Token::BitwiseXor => {
                 tokens.next();
-                let right = Self::and_expression(tokens, context)?;
+                let right = Self::and_expression(tokens)?;
                 Expression::Bitwise {
                     left: Box::new(and_expression),
                     right: Box::new(right),
@@ -398,11 +374,8 @@ impl Expression {
         Ok(out)
     }
 
-    fn and_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let equality_expression = Self::equality_expression(tokens, context)?;
+    fn and_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let equality_expression = Self::equality_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -412,7 +385,7 @@ impl Expression {
         let out = match peek {
             Token::Ampersand => {
                 tokens.next();
-                let right = Self::equality_expression(tokens, context)?;
+                let right = Self::equality_expression(tokens)?;
                 Expression::Bitwise {
                     left: Box::new(equality_expression),
                     right: Box::new(right),
@@ -425,11 +398,8 @@ impl Expression {
         Ok(out)
     }
 
-    fn equality_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let relation_expression = Self::relation_expression(tokens, context)?;
+    fn equality_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let relation_expression = Self::relation_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -443,7 +413,7 @@ impl Expression {
         };
 
         tokens.next();
-        let right = Self::relation_expression(tokens, context)?;
+        let right = Self::relation_expression(tokens)?;
         Ok(Expression::Equality {
             left: Box::new(relation_expression),
             right: Box::new(right),
@@ -451,11 +421,8 @@ impl Expression {
         })
     }
 
-    fn relation_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let shift_expression = Self::shift_expression(tokens, context)?;
+    fn relation_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let shift_expression = Self::shift_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -471,7 +438,7 @@ impl Expression {
         };
 
         tokens.next();
-        let right = Self::shift_expression(tokens, context)?;
+        let right = Self::shift_expression(tokens)?;
         Ok(Expression::Relation {
             left: Box::new(shift_expression),
             right: Box::new(right),
@@ -479,11 +446,8 @@ impl Expression {
         })
     }
 
-    fn shift_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let additive_expression = Self::additive_expression(tokens, context)?;
+    fn shift_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let additive_expression = Self::additive_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -493,7 +457,7 @@ impl Expression {
         let out = match peek {
             Token::ShiftLeft => {
                 tokens.next();
-                let right = Self::additive_expression(tokens, context)?;
+                let right = Self::additive_expression(tokens)?;
                 Expression::Shift {
                     left: Box::new(additive_expression),
                     right: Box::new(right),
@@ -502,7 +466,7 @@ impl Expression {
             }
             Token::ShiftRight => {
                 tokens.next();
-                let right = Self::additive_expression(tokens, context)?;
+                let right = Self::additive_expression(tokens)?;
                 Expression::Shift {
                     left: Box::new(additive_expression),
                     right: Box::new(right),
@@ -515,11 +479,8 @@ impl Expression {
         Ok(out)
     }
 
-    fn additive_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let multiplicative_expression = Self::multiplicative_expression(tokens, context)?;
+    fn additive_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let multiplicative_expression = Self::multiplicative_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -529,7 +490,7 @@ impl Expression {
         let out = match peek {
             Token::Addition => {
                 tokens.next();
-                let right = Self::multiplicative_expression(tokens, context)?;
+                let right = Self::multiplicative_expression(tokens)?;
                 Expression::Additive {
                     left: Box::new(multiplicative_expression),
                     right: Box::new(right),
@@ -538,7 +499,7 @@ impl Expression {
             }
             Token::Negation => {
                 tokens.next();
-                let right = Self::multiplicative_expression(tokens, context)?;
+                let right = Self::multiplicative_expression(tokens)?;
                 Expression::Additive {
                     left: Box::new(multiplicative_expression),
                     right: Box::new(right),
@@ -551,11 +512,8 @@ impl Expression {
         Ok(out)
     }
 
-    fn multiplicative_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let cast_expression = Self::cast_expression(tokens, context)?;
+    fn multiplicative_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let cast_expression = Self::cast_expression(tokens)?;
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -565,7 +523,7 @@ impl Expression {
         let out = match peek {
             Token::Star => {
                 tokens.next();
-                let right = Self::cast_expression(tokens, context)?;
+                let right = Self::cast_expression(tokens)?;
                 Expression::Multiplicative {
                     left: Box::new(cast_expression),
                     right: Box::new(right),
@@ -574,7 +532,7 @@ impl Expression {
             }
             Token::Division => {
                 tokens.next();
-                let right = Self::cast_expression(tokens, context)?;
+                let right = Self::cast_expression(tokens)?;
                 Expression::Multiplicative {
                     left: Box::new(cast_expression),
                     right: Box::new(right),
@@ -583,7 +541,7 @@ impl Expression {
             }
             Token::Modulo => {
                 tokens.next();
-                let right = Self::cast_expression(tokens, context)?;
+                let right = Self::cast_expression(tokens)?;
                 Expression::Multiplicative {
                     left: Box::new(cast_expression),
                     right: Box::new(right),
@@ -596,37 +554,31 @@ impl Expression {
         Ok(out)
     }
 
-    fn cast_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
+    fn cast_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
         let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         match peek {
             Token::OpenParenthesis => {
                 tokens.next();
-                let type_info = TypeInfo::parse(tokens, context)?;
+                let type_info = TypeInfo::parse(tokens)?;
                 Self::expect_token(tokens, Token::CloseParenthesis)?;
-                let expression = Self::cast_expression(tokens, context)?;
+                let expression = Self::cast_expression(tokens)?;
                 Ok(Expression::Cast {
                     type_info,
                     expression: Box::new(expression),
                 })
             }
-            _ => Self::unary_expression(tokens, context),
+            _ => Self::unary_expression(tokens),
         }
     }
 
-    fn unary_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
+    fn unary_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
         let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match peek {
             Token::Increment => {
                 tokens.next();
-                let unary_expression = Self::unary_expression(tokens, context)?;
+                let unary_expression = Self::unary_expression(tokens)?;
                 Expression::PreOperation {
                     variable: unary_expression.get_identifier().ok_or_else(|| {
                         ParserError::UnexpectedToken {
@@ -640,7 +592,7 @@ impl Expression {
             }
             Token::Decrement => {
                 tokens.next();
-                let unary_expression = Self::unary_expression(tokens, context)?;
+                let unary_expression = Self::unary_expression(tokens)?;
                 Expression::PreOperation {
                     variable: unary_expression.get_identifier().ok_or_else(|| {
                         ParserError::UnexpectedToken {
@@ -661,11 +613,11 @@ impl Expression {
                     .clone();
 
                 let out = match peek {
-                    Token::Keyword(_) => Expression::Sizeof(SizeofExpression::Type(
-                        TypeInfo::parse(tokens, context)?,
-                    )),
+                    Token::Keyword(_) => {
+                        Expression::Sizeof(SizeofExpression::Type(TypeInfo::parse(tokens)?))
+                    }
                     _ => {
-                        let expression = Expression::parse(tokens, context)?;
+                        let expression = Expression::parse(tokens)?;
                         Expression::Sizeof(SizeofExpression::Expression(Box::new(expression)))
                     }
                 };
@@ -676,7 +628,7 @@ impl Expression {
             }
             Token::Ampersand => {
                 tokens.next();
-                let expression = Self::cast_expression(tokens, context)?;
+                let expression = Self::cast_expression(tokens)?;
                 Expression::Unary {
                     operator: UnaryOperator::AddressOf,
                     expression: Box::new(expression),
@@ -684,7 +636,7 @@ impl Expression {
             }
             Token::Star => {
                 tokens.next();
-                let expression = Self::cast_expression(tokens, context)?;
+                let expression = Self::cast_expression(tokens)?;
                 Expression::Unary {
                     operator: UnaryOperator::Dereference,
                     expression: Box::new(expression),
@@ -692,7 +644,7 @@ impl Expression {
             }
             Token::Addition => {
                 tokens.next();
-                let expression = Self::cast_expression(tokens, context)?;
+                let expression = Self::cast_expression(tokens)?;
                 Expression::Unary {
                     operator: UnaryOperator::Plus,
                     expression: Box::new(expression),
@@ -700,7 +652,7 @@ impl Expression {
             }
             Token::Negation => {
                 tokens.next();
-                let expression = Self::cast_expression(tokens, context)?;
+                let expression = Self::cast_expression(tokens)?;
                 Expression::Unary {
                     operator: UnaryOperator::Minus,
                     expression: Box::new(expression),
@@ -708,7 +660,7 @@ impl Expression {
             }
             Token::BitwiseNot => {
                 tokens.next();
-                let expression = Self::cast_expression(tokens, context)?;
+                let expression = Self::cast_expression(tokens)?;
                 Expression::Unary {
                     operator: UnaryOperator::BitwiseNot,
                     expression: Box::new(expression),
@@ -716,23 +668,20 @@ impl Expression {
             }
             Token::LogicalNot => {
                 tokens.next();
-                let expression = Self::cast_expression(tokens, context)?;
+                let expression = Self::cast_expression(tokens)?;
                 Expression::Unary {
                     operator: UnaryOperator::LogicalNot,
                     expression: Box::new(expression),
                 }
             }
-            _ => Self::postfix_expression(tokens, context)?,
+            _ => Self::postfix_expression(tokens)?,
         };
 
         Ok(out)
     }
 
-    fn postfix_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
-        let primary = Self::primary_expression(tokens, context)?;
+    fn postfix_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
+        let primary = Self::primary_expression(tokens)?;
         let peek = tokens.peek();
 
         let peek = match peek {
@@ -744,7 +693,7 @@ impl Expression {
             // <postfix-expression> [ <expression> ]
             Token::OpenSquareBracket => {
                 tokens.next();
-                let expression = Expression::parse(tokens, context)?;
+                let expression = Expression::parse(tokens)?;
                 Self::expect_token(tokens, Token::CloseSquareBracket)?;
                 Expression::SquareBracket {
                     variable: primary
@@ -820,10 +769,7 @@ impl Expression {
         Ok(out)
     }
 
-    fn primary_expression(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        context: &Context,
-    ) -> Result {
+    fn primary_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result {
         let token = tokens
             .peek()
             .ok_or(ParserError::UnexpectedEndOfInput)?
@@ -832,13 +778,9 @@ impl Expression {
         let out = match token {
             Token::Word(identifier) => {
                 tokens.next();
-                if context.contains_enumeration_constant(&identifier.to_string()) {
-                    Expression::Constant(Constant::Enumeration(identifier.to_string()))
-                } else {
-                    Expression::Identifier(identifier.to_string())
-                }
+                Expression::Identifier(identifier.to_string())
             }
-            Token::Constant { .. } => Expression::Constant(Constant::parse(tokens, context)?),
+            Token::Constant { .. } => Expression::Constant(Constant::parse(tokens)?),
             Token::StringLiteral(string_literal) => match string_literal {
                 StringLiteral::ByteString(bytes) => {
                     let string = bytes.iter().collect();
@@ -847,7 +789,7 @@ impl Expression {
             },
             Token::OpenParenthesis => {
                 tokens.next();
-                let expression = Expression::parse(tokens, context)?;
+                let expression = Expression::parse(tokens)?;
                 Self::expect_token(tokens, Token::CloseParenthesis)?;
                 expression
             }
@@ -880,45 +822,6 @@ impl Expression {
     }
 }
 
-impl Parse for TypeInfo {
-    fn parse(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-        _: &Context,
-    ) -> std::result::Result<TypeInfo, ParserError>
-    where
-        Self: Sized,
-    {
-        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
-
-        let out = match token {
-            Token::Keyword(Keyword::Struct) => {
-                let identifier = match tokens.next().ok_or(ParserError::UnexpectedEndOfInput)? {
-                    Token::Word(identifier) => identifier,
-                    unexpected => {
-                        return Err(ParserError::UnexpectedToken {
-                            unexpected,
-                            expected: vec![Token::Word("<identifier>".to_string())],
-                            near_tokens: tokens.take(6).collect(),
-                        })
-                    }
-                };
-
-                TypeInfo::Struct(identifier)
-            }
-            Token::Keyword(keyword) => TypeInfo::Keyword(keyword.to_string().to_lowercase()),
-            unexpected => {
-                return Err(ParserError::UnexpectedToken {
-                    unexpected,
-                    expected: vec![Token::Keyword(Keyword::Int)],
-                    near_tokens: tokens.take(6).collect(),
-                })
-            }
-        };
-
-        Ok(out)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -926,12 +829,11 @@ mod tests {
         Assignment as TokenAssignment, Constant as TokenConstant, Keyword, StringLiteral, Token,
     };
     use crate::parser::constant::Constant;
-    use crate::parser::Context;
     use rstest::rstest;
 
     #[rstest]
     #[case::identifier(vec![Token::Word("foo".to_string())], Expression::Identifier("foo".to_string()))]
-    #[case::enumeration_constant(vec![Token::Word("bar".to_string())], Expression::Constant(Constant::Enumeration("bar".to_string())))]
+    #[case::enumeration_constant(vec![Token::Word("bar".to_string())], Expression::Identifier("bar".to_string()))]
     #[case::signed_constant(vec![Token::Constant(TokenConstant::SignedInteger(42))], Expression::Constant(Constant::Integer(42)))]
     #[case::unsigned_constant(vec![Token::Constant(TokenConstant::UnsignedInteger(42))], Expression::Constant(Constant::Integer(42)))]
     #[case::character_constant(vec![Token::Constant(TokenConstant::Character('a'))], Expression::Constant(Constant::Character('a')))]
@@ -939,14 +841,7 @@ mod tests {
     #[case::string_u8(vec![Token::StringLiteral(StringLiteral::ByteString(vec!['h', 'e', 'l', 'l', 'o']))], Expression::String("hello".to_string()))]
     #[case::parenthesis(vec![Token::OpenParenthesis, Token::Word("foo".to_string()), Token::CloseParenthesis], Expression::Identifier("foo".to_string()))]
     fn primary_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let mut context = Context {
-            enums: Default::default(),
-        };
-        context
-            .enums
-            .insert("foo".to_string(), vec!["bar".to_string()]);
-        let result =
-            Expression::primary_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Expression::primary_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1006,9 +901,7 @@ mod tests {
         },
     )]
     fn test_postfix_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context::default();
-        let result =
-            Expression::postfix_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Expression::postfix_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1112,9 +1005,7 @@ mod tests {
         },
     )]
     fn test_unary_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context::default();
-        let result =
-            Expression::unary_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Expression::unary_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1132,9 +1023,7 @@ mod tests {
         },
     )]
     fn test_cast_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context::default();
-        let result =
-            Expression::cast_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Expression::cast_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1176,10 +1065,8 @@ mod tests {
         },
     )]
     fn test_multiplicative_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context::default();
         let result =
-            Expression::multiplicative_expression(&mut input.into_iter().peekable(), &context)
-                .unwrap();
+            Expression::multiplicative_expression(&mut input.into_iter().peekable()).unwrap();
     }
 
     #[rstest]
@@ -1208,9 +1095,7 @@ mod tests {
         },
     )]
     fn test_additive_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context::default();
-        let result =
-            Expression::additive_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Expression::additive_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1240,9 +1125,7 @@ mod tests {
         },
     )]
     fn test_shift_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context::default();
-        let result =
-            Expression::shift_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Expression::shift_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1296,9 +1179,7 @@ mod tests {
         },
     )]
     fn test_relation_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context::default();
-        let result =
-            Expression::relation_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Expression::relation_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1328,9 +1209,7 @@ mod tests {
         },
     )]
     fn test_equality_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context::default();
-        let result =
-            Expression::equality_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Expression::equality_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1346,9 +1225,8 @@ mod tests {
             right: Box::new(Expression::Identifier("bar".to_string())),
             operator: BitwiseOperator::And,
         };
-        let context = Context::default();
-        let result =
-            Expression::and_expression(&mut input.into_iter().peekable(), &context).unwrap();
+
+        let result = Expression::and_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1364,10 +1242,9 @@ mod tests {
             right: Box::new(Expression::Identifier("bar".to_string())),
             operator: BitwiseOperator::Xor,
         };
-        let context = Context::default();
+
         let result =
-            Expression::exclusive_or_expression(&mut input.into_iter().peekable(), &context)
-                .unwrap();
+            Expression::exclusive_or_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1383,10 +1260,9 @@ mod tests {
             right: Box::new(Expression::Identifier("bar".to_string())),
             operator: BitwiseOperator::Or,
         };
-        let context = Context::default();
+
         let result =
-            Expression::inclusive_or_expression(&mut input.into_iter().peekable(), &context)
-                .unwrap();
+            Expression::inclusive_or_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1402,10 +1278,8 @@ mod tests {
             right: Box::new(Expression::Identifier("bar".to_string())),
             operator: LogicalOperator::And,
         };
-        let context = Context::default();
-        let result =
-            Expression::logical_and_expression(&mut input.into_iter().peekable(), &context)
-                .unwrap();
+
+        let result = Expression::logical_and_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1421,9 +1295,8 @@ mod tests {
             right: Box::new(Expression::Identifier("bar".to_string())),
             operator: LogicalOperator::Or,
         };
-        let context = Context::default();
-        let result =
-            Expression::logical_or_expression(&mut input.into_iter().peekable(), &context).unwrap();
+
+        let result = Expression::logical_or_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1441,10 +1314,8 @@ mod tests {
             true_expression: Box::new(Expression::Identifier("bar".to_string())),
             false_expression: Box::new(Expression::Identifier("baz".to_string())),
         };
-        let context = Context::default();
-        let result =
-            Expression::conditional_expression(&mut input.into_iter().peekable(), &context)
-                .unwrap();
+
+        let result = Expression::conditional_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1582,9 +1453,7 @@ mod tests {
         },
     )]
     fn test_assignment_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
-        let context = Context::default();
-        let result =
-            Expression::assignment_expression(&mut input.into_iter().peekable(), &context).unwrap();
+        let result = Expression::assignment_expression(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 
@@ -1599,17 +1468,8 @@ mod tests {
             left: Box::new(Expression::Identifier("foo".to_string())),
             right: Box::new(Expression::Identifier("bar".to_string())),
         };
-        let context = Context::default();
-        let result = Expression::parse(&mut input.into_iter().peekable(), &context).unwrap();
-        assert_eq!(result, expected);
-    }
 
-    #[rstest]
-    #[case::type_name(vec![Token::Keyword(Keyword::Int)], TypeInfo::Keyword("int".to_string()))]
-    #[case::struct_(vec![Token::Keyword(Keyword::Struct), Token::Word("foo".to_string())], TypeInfo::Struct("foo".to_string()))]
-    fn test_type_info(#[case] input: Vec<Token>, #[case] expected: TypeInfo) {
-        let result =
-            TypeInfo::parse(&mut input.into_iter().peekable(), &Context::default()).unwrap();
+        let result = Expression::parse(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }
 }
