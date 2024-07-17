@@ -1,7 +1,10 @@
-use crate::lexer::{Constant as TokenConstant, Keyword, StringLiteral, Token};
+use crate::lexer::{
+    Assignment as TokenAssignment, Constant as TokenConstant, Keyword, StringLiteral, Token,
+};
 use crate::parser::constant::Constant;
 use crate::parser::{Context, Parse, ParserError};
 use std::iter::Peekable;
+use TokenAssignment::*;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -74,6 +77,27 @@ pub enum Expression {
         true_expression: Box<Expression>,
         false_expression: Box<Expression>,
     },
+    Assignment {
+        variable: String,
+        expression: Box<Expression>,
+        operator: AssignmentOperator,
+    },
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum AssignmentOperator {
+    Assign,
+    AddAssign,
+    SubtractAssign,
+    MultiplyAssign,
+    DivideAssign,
+    ModuloAssign,
+    LeftShiftAssign,
+    RightShiftAssign,
+    BitwiseAndAssign,
+    BitwiseXorAssign,
+    BitwiseOrAssign,
 }
 
 #[derive(Debug)]
@@ -173,6 +197,47 @@ impl Parse for Expression {
 type Result = std::result::Result<Expression, ParserError>;
 
 impl Expression {
+    fn assignment_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let conditional_expression = Self::conditional_expression(tokens, context)?;
+
+        let identifier = match &conditional_expression {
+            Expression::Identifier(id) => id,
+            _ => return Ok(conditional_expression),
+        };
+
+        let peek = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(conditional_expression),
+        };
+
+        let operator = match peek {
+            Token::Assignment(Equal) => AssignmentOperator::Assign,
+            Token::Assignment(PlusEqual) => AssignmentOperator::AddAssign,
+            Token::Assignment(MinusEqual) => AssignmentOperator::SubtractAssign,
+            Token::Assignment(MultiplyEqual) => AssignmentOperator::MultiplyAssign,
+            Token::Assignment(DivideEqual) => AssignmentOperator::DivideAssign,
+            Token::Assignment(ModuloEqual) => AssignmentOperator::ModuloAssign,
+            Token::Assignment(ShiftLeftEqual) => AssignmentOperator::LeftShiftAssign,
+            Token::Assignment(ShiftRightEqual) => AssignmentOperator::RightShiftAssign,
+            Token::Assignment(AndEqual) => AssignmentOperator::BitwiseAndAssign,
+            Token::Assignment(XorEqual) => AssignmentOperator::BitwiseXorAssign,
+            Token::Assignment(OrEqual) => AssignmentOperator::BitwiseOrAssign,
+            _ => return Ok(conditional_expression),
+        };
+
+        tokens.next();
+        let expression = Self::assignment_expression(tokens, context)?;
+
+        Ok(Expression::Assignment {
+            variable: identifier.to_string(),
+            expression: Box::new(expression),
+            operator,
+        })
+    }
+
     fn conditional_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -834,7 +899,9 @@ impl Parse for TypeInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::lexer::{Constant as TokenConstant, Keyword, StringLiteral, Token};
+    use crate::lexer::{
+        Assignment as TokenAssignment, Constant as TokenConstant, Keyword, StringLiteral, Token,
+    };
     use crate::parser::constant::Constant;
     use crate::parser::Context;
     use rstest::rstest;
@@ -1355,6 +1422,146 @@ mod tests {
         let result =
             Expression::conditional_expression(&mut input.into_iter().peekable(), &context)
                 .unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::assigment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::Equal),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::Assign,
+        },
+    )]
+    #[case::add_assignment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::PlusEqual),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::AddAssign,
+        },
+    )]
+    #[case::subtract_assignment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::MinusEqual),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::SubtractAssign,
+        },
+    )]
+    #[case::multiply_assignment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::MultiplyEqual),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::MultiplyAssign,
+        },
+    )]
+    #[case::divide_assignment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::DivideEqual),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::DivideAssign,
+        },
+    )]
+    #[case::modulo_assignment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::ModuloEqual),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::ModuloAssign,
+        },
+    )]
+    #[case::shift_left_assignment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::ShiftLeftEqual),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::LeftShiftAssign,
+        },
+    )]
+    #[case::shift_right_assignment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::ShiftRightEqual),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::RightShiftAssign,
+        },
+    )]
+    #[case::and_assignment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::AndEqual),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::BitwiseAndAssign,
+        },
+    )]
+    #[case::xor_assignment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::XorEqual),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::BitwiseXorAssign,
+        },
+    )]
+    #[case::or_assignment(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Assignment(TokenAssignment::OrEqual),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: "foo".to_string(),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::BitwiseOrAssign,
+        },
+    )]
+    fn test_assignment_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
+        let context = Context::default();
+        let result =
+            Expression::assignment_expression(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 
