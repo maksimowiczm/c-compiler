@@ -21,6 +21,21 @@ pub enum Statement {
         label: Label,
         statement: Box<Statement>,
     },
+    Compound(Vec<Statement>),
+    Loop(Loop),
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum Loop {
+    While {
+        condition: Expression,
+        statement: Box<Statement>,
+    },
+    DoWhile {
+        statement: Box<Statement>,
+        condition: Expression,
+    },
 }
 
 #[derive(Debug)]
@@ -47,6 +62,9 @@ impl Parse for Statement {
             Token::Keyword(Keyword::Case) | Token::Keyword(Keyword::Default) => {
                 Statement::labeled_statement(tokens, context)?
             }
+            Token::Keyword(Keyword::While) | Token::Keyword(Keyword::Do) => {
+                Statement::iteration_statement(tokens, context)?
+            }
             _ => Statement::expression_statement(tokens, context)?,
         };
 
@@ -55,6 +73,37 @@ impl Parse for Statement {
 }
 
 impl Statement {
+    fn iteration_statement(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+        context: &Context,
+    ) -> Result {
+        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        let out = match token {
+            Token::Keyword(Keyword::While) => {
+                Self::expect_token(tokens, Token::OpenParenthesis)?;
+                let condition = Expression::parse(tokens, context)?;
+                Self::expect_token(tokens, Token::CloseParenthesis)?;
+                let statement = Box::new(Statement::parse(tokens, context)?);
+
+                Statement::Loop(Loop::While { condition, statement })
+            }
+            Token::Keyword(Keyword::Do) => {
+                let statement = Box::new(Statement::parse(tokens, context)?);
+                Self::expect_token(tokens, Token::Keyword(Keyword::While))?;
+                Self::expect_token(tokens, Token::OpenParenthesis)?;
+                let condition = Expression::parse(tokens, context)?;
+                Self::expect_token(tokens, Token::CloseParenthesis)?;
+                Self::expect_token(tokens, Token::SemiColon)?;
+
+                Statement::Loop(Loop::DoWhile { statement, condition })
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(out)
+    }
+
     fn labeled_statement(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         context: &Context,
@@ -368,6 +417,44 @@ mod tests {
     fn test_labeled_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
         let context = Context::default();
         let result = Statement::parse(&mut input.into_iter().peekable(), &context).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::while_loop(
+        vec![
+            Token::Keyword(Keyword::While),
+            Token::OpenParenthesis,
+            Token::Word("a".to_string()),
+            Token::CloseParenthesis,
+            Token::Word("b".to_string()),
+            Token::SemiColon,
+        ],
+        Statement::Loop(Loop::While {
+            condition: Expression::Identifier("a".to_string()),
+            statement: Box::new(Statement::Expression(Expression::Identifier("b".to_string()))),
+        })
+    )]
+    #[case::do_while_loop(
+        vec![
+            Token::Keyword(Keyword::Do),
+            Token::Word("a".to_string()),
+            Token::SemiColon,
+            Token::Keyword(Keyword::While),
+            Token::OpenParenthesis,
+            Token::Word("b".to_string()),
+            Token::CloseParenthesis,
+            Token::SemiColon,
+        ],
+        Statement::Loop(Loop::DoWhile {
+            statement: Box::new(Statement::Expression(Expression::Identifier("a".to_string()))),
+            condition: Expression::Identifier("b".to_string()),
+        })
+    )]
+    fn test_iteration_statement(#[case] input: Vec<Token>, #[case] expected: Statement) {
+        let context = Context::default();
+        let result =
+            Statement::iteration_statement(&mut input.into_iter().peekable(), &context).unwrap();
         assert_eq!(result, expected);
     }
 }
