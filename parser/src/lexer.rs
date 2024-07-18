@@ -554,7 +554,7 @@ where
         NumberType::Hexadecimal => i128::from_str_radix(&number[2..], 16)
             .ok()
             .and_then(parse_integer),
-        NumberType::Octal => i128::from_str_radix(&number[1..], 8)
+        NumberType::Octal => i128::from_str_radix(&number[..], 8)
             .ok()
             .and_then(parse_integer),
     }
