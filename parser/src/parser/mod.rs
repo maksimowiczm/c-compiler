@@ -44,7 +44,7 @@ pub enum ParserError {
 
 pub type Result<T> = std::result::Result<T, ParserError>;
 
-trait Parse {
+pub trait Parse {
     fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
     where
         Self: Sized;

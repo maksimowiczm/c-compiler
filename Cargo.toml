@@ -8,6 +8,14 @@ members = [
     "parser",
 ]
 
+[[bin]]
+name = "compiler"
+path = "src/main.rs"
+
+[[bin]]
+name = "parser"
+path = "parser/src/main.rs"
+
 [dependencies]
 derive_more = { version = "1.0.0-beta.6", features = ["error", "display", "from_str"] }
 clap = { version = "4.5.9", features = ["derive"] }
