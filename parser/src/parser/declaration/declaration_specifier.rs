@@ -2,7 +2,7 @@ use crate::lexer::Token;
 use crate::parser::declaration::storage_class::StorageClass;
 use crate::parser::declaration::type_qualifier::TypeQualifier;
 use crate::parser::declaration::type_specifier::TypeSpecifier;
-use crate::parser::{Parse, ParserError};
+use crate::parser::{ParserError, Result, TryParse};
 use std::iter::Peekable;
 
 #[derive(Debug)]
@@ -13,36 +13,24 @@ pub enum DeclarationSpecifier {
     TypeQualifier(TypeQualifier),
 }
 
-impl Parse for DeclarationSpecifier {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> crate::parser::Result<Self>
+impl TryParse for DeclarationSpecifier {
+    fn try_parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Option<Self>>
     where
         Self: Sized,
     {
         let token = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
         let out = match token {
-            Token::Keyword(keyword) => {
-                if keyword.is_storage_class() {
-                    DeclarationSpecifier::StorageClass(StorageClass::parse(tokens)?)
-                } else if keyword.is_type_specifier() {
-                    DeclarationSpecifier::TypeSpecifier(TypeSpecifier::parse(tokens)?)
-                } else if keyword.is_type_qualifier() {
-                    DeclarationSpecifier::TypeQualifier(TypeQualifier::parse(tokens)?)
+            Token::Keyword(_) => {
+                if let Some(storage_class) = StorageClass::try_parse(tokens)? {
+                    Some(DeclarationSpecifier::StorageClass(storage_class))
+                } else if let Some(type_specifier) = TypeSpecifier::try_parse(tokens)? {
+                    Some(DeclarationSpecifier::TypeSpecifier(type_specifier))
                 } else {
-                    return Err(ParserError::UnexpectedToken {
-                        unexpected: token.clone(),
-                        expected: vec![], // todo
-                        near_tokens: tokens.take(6).collect(),
-                    });
+                    TypeQualifier::try_parse(tokens)?.map(DeclarationSpecifier::TypeQualifier)
                 }
             }
-            _ => {
-                return Err(ParserError::UnexpectedToken {
-                    unexpected: token.clone(),
-                    expected: vec![], // todo
-                    near_tokens: tokens.take(6).collect(),
-                });
-            }
+            _ => None,
         };
 
         Ok(out)
@@ -73,7 +61,9 @@ mod tests {
         #[case] expected: DeclarationSpecifier,
     ) {
         let mut input = input.into_iter().peekable();
-        let result = DeclarationSpecifier::parse(&mut input).unwrap();
+        let result = DeclarationSpecifier::try_parse(&mut input)
+            .unwrap()
+            .unwrap();
         assert_eq!(result, expected);
     }
 }

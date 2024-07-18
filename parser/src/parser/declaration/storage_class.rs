@@ -1,5 +1,5 @@
 use crate::lexer::{Keyword, Token};
-use crate::parser::{Parse, ParserError, Result};
+use crate::parser::{ParserError, Result, TryParse};
 use std::iter::Peekable;
 
 #[derive(Debug)]
@@ -12,31 +12,20 @@ pub enum StorageClass {
     Typedef,
 }
 
-impl Parse for StorageClass {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
+impl TryParse for StorageClass {
+    fn try_parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Option<Self>>
     where
         Self: Sized,
     {
-        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
-        let out = match token {
-            Token::Keyword(Keyword::Auto) => StorageClass::Auto,
-            Token::Keyword(Keyword::Register) => StorageClass::Register,
-            Token::Keyword(Keyword::Static) => StorageClass::Static,
-            Token::Keyword(Keyword::Extern) => StorageClass::Extern,
-            Token::Keyword(Keyword::Typedef) => StorageClass::Typedef,
-            _ => {
-                return Err(ParserError::UnexpectedToken {
-                    unexpected: token,
-                    expected: vec![
-                        Token::Keyword(Keyword::Auto),
-                        Token::Keyword(Keyword::Register),
-                        Token::Keyword(Keyword::Static),
-                        Token::Keyword(Keyword::Extern),
-                        Token::Keyword(Keyword::Typedef),
-                    ],
-                    near_tokens: tokens.take(6).collect(),
-                })
-            }
+        let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        let out = match peek {
+            Token::Keyword(Keyword::Auto) => Some(StorageClass::Auto),
+            Token::Keyword(Keyword::Register) => Some(StorageClass::Register),
+            Token::Keyword(Keyword::Static) => Some(StorageClass::Static),
+            Token::Keyword(Keyword::Extern) => Some(StorageClass::Extern),
+            Token::Keyword(Keyword::Typedef) => Some(StorageClass::Typedef),
+            _ => None,
         };
 
         Ok(out)
@@ -57,7 +46,7 @@ mod tests {
     #[case::typedef(vec![Token::Keyword(Keyword::Typedef)], StorageClass::Typedef)]
     fn test_storage_class(#[case] input: Vec<Token>, #[case] expected: StorageClass) {
         let mut tokens = input.into_iter().peekable();
-        let result = StorageClass::parse(&mut tokens).unwrap();
+        let result = StorageClass::try_parse(&mut tokens).unwrap().unwrap();
         assert_eq!(result, expected);
     }
 }

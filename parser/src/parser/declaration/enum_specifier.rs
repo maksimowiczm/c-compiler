@@ -86,9 +86,7 @@ impl Parse for EnumSpecifier {
 }
 
 impl Parse for Enumerator {
-    fn parse(
-        tokens: &mut Peekable<impl Iterator<Item = Token>>,
-    ) -> std::result::Result<Self, ParserError>
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
     where
         Self: Sized,
     {

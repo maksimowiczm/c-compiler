@@ -130,21 +130,6 @@ impl Keyword {
                 | Keyword::Void
         )
     }
-
-    pub(crate) fn is_storage_class(&self) -> bool {
-        matches!(
-            self,
-            Keyword::Auto
-                | Keyword::Extern
-                | Keyword::Register
-                | Keyword::Static
-                | Keyword::Typedef
-        )
-    }
-
-    pub(crate) fn is_type_qualifier(&self) -> bool {
-        matches!(self, Keyword::Const | Keyword::Volatile)
-    }
 }
 
 #[derive(Debug, PartialEq, Clone)]

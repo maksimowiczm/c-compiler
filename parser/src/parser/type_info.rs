@@ -93,7 +93,7 @@ impl Parse for TypeInfo {
                 TypeInfo::Enum { name, values }
             }
             Token::Keyword(keyword) => {
-                if keyword.is_type() {
+                if keyword.is_type_specifier() {
                     TypeInfo::Keyword(keyword.to_string().to_lowercase())
                 } else {
                     return Err(ParserError::ExpectedType {

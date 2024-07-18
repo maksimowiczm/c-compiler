@@ -80,7 +80,9 @@ mod tests {
             Token::SemiColon,
             Token::CloseBrace
         ],
-        todo!()
+        StructOrUnionSpecifier::List {
+            list: vec![StructDeclaration {}]
+        }
     )]
     fn test_struct_or_union_specifier(
         #[case] input: Vec<Token>,

@@ -198,7 +198,7 @@ impl Parse for Expression {
         let out = match peek {
             Token::Comma => {
                 tokens.next();
-                let right = Self::parse(tokens)?;
+                let right = Self::assignment_expression(tokens)?;
                 Expression::Comma {
                     left: Box::new(expression),
                     right: Box::new(right),
@@ -212,7 +212,7 @@ impl Parse for Expression {
 }
 
 impl Expression {
-    fn assignment_expression(
+    pub fn assignment_expression(
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
     ) -> Result<Self> {
         let conditional_expression = Self::conditional_expression(tokens)?;
@@ -265,7 +265,7 @@ impl Expression {
                 tokens.next();
                 let true_expression = Self::parse(tokens)?;
                 Self::expect_token(tokens, Token::Colon)?;
-                let false_expression = Self::conditional_expression(tokens)?;
+                let false_expression = Self::parse(tokens)?;
                 Expression::Ternary {
                     condition: Box::new(logical_or_expression),
                     true_expression: Box::new(true_expression),
@@ -512,7 +512,9 @@ impl Expression {
         Ok(out)
     }
 
-    fn multiplicative_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
+    fn multiplicative_expression(
+        tokens: &mut Peekable<impl Iterator<Item = Token>>,
+    ) -> Result<Self> {
         let cast_expression = Self::cast_expression(tokens)?;
 
         let peek = match tokens.peek() {

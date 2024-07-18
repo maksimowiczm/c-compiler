@@ -1,8 +1,8 @@
 use crate::lexer::{Keyword, Token};
 use crate::parser::declaration::enum_specifier::EnumSpecifier;
-use crate::parser::{Parse, ParserError, Result};
-use std::iter::Peekable;
 use crate::parser::declaration::struct_or_union_specifier::StructOrUnionSpecifier;
+use crate::parser::{Parse, ParserError, Result, TryParse};
+use std::iter::Peekable;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -22,8 +22,8 @@ pub enum TypeSpecifier {
     Typedef(String),
 }
 
-impl Parse for TypeSpecifier {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
+impl TryParse for TypeSpecifier {
+    fn try_parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Option<Self>>
     where
         Self: Sized,
     {
@@ -67,20 +67,8 @@ impl Parse for TypeSpecifier {
                     tokens.next();
                     TypeSpecifier::Unsigned
                 }
-                Keyword::Struct | Keyword::Union => {
-                    let keyword = match tokens.next() {
-                        Some(Token::Keyword(keyword)) => keyword,
-                        _ => unreachable!(),
-                    };
-
-                    let specifier = StructOrUnionSpecifier::parse(tokens)?;
-
-                    match keyword {
-                        Keyword::Struct => TypeSpecifier::Struct(specifier),
-                        Keyword::Union => TypeSpecifier::Union(specifier),
-                        _ => unreachable!(),
-                    }
-                }
+                Keyword::Struct => TypeSpecifier::Struct(StructOrUnionSpecifier::parse(tokens)?),
+                Keyword::Union => TypeSpecifier::Union(StructOrUnionSpecifier::parse(tokens)?),
                 Keyword::Enum => TypeSpecifier::Enum(EnumSpecifier::parse(tokens)?),
                 Keyword::Typedef => {
                     tokens.next();
@@ -95,22 +83,12 @@ impl Parse for TypeSpecifier {
                         }
                     }
                 }
-                _ => {
-                    return Err(ParserError::ExpectedTypeSpecifier {
-                        unexpected: peek.clone(),
-                        near_tokens: tokens.take(6).collect(),
-                    })
-                }
+                _ => return Ok(None),
             },
-            _ => {
-                return Err(ParserError::ExpectedTypeSpecifier {
-                    unexpected: peek.clone(),
-                    near_tokens: tokens.take(6).collect(),
-                })
-            }
+            _ => return Ok(None),
         };
 
-        Ok(out)
+        Ok(Some(out))
     }
 }
 
@@ -160,11 +138,11 @@ mod tests {
     )]
     #[case::struct_(
         vec![Token::Keyword(Keyword::Struct), Token::Word("foo".to_string())],
-        todo!()
+        TypeSpecifier::Struct(StructOrUnionSpecifier::Identifier{ identifier: "foo".to_string() })
     )]
     #[case::union(
         vec![Token::Keyword(Keyword::Union), Token::Word("foo".to_string())],
-        todo!()
+        TypeSpecifier::Union(StructOrUnionSpecifier::Identifier{ identifier: "foo".to_string() })
     )]
     #[case::enum_identifier(
         vec![Token::Keyword(Keyword::Enum), Token::Word("foo".to_string())],
@@ -189,7 +167,7 @@ mod tests {
     )]
     fn test_type_specifier(#[case] input: Vec<Token>, #[case] expected: TypeSpecifier) {
         let mut input = input.into_iter().peekable();
-        let result = TypeSpecifier::parse(&mut input).unwrap();
+        let result = TypeSpecifier::try_parse(&mut input).unwrap().unwrap();
         assert_eq!(result, expected);
     }
 }

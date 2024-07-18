@@ -49,13 +49,20 @@ pub enum ParserError {
         unexpected: Token,
         near_tokens: Vec<Token>,
     },
-    #[display(
-        "Unexpected token {:?}. Expected type qualifier, near tokens: {:?}",
-        unexpected,
-        near_tokens
-    )]
-    ExpectedSpecifierQualifier {
-        unexpected: Token,
+    #[display("Expected initializer, near tokens: {:?}", near_tokens)]
+    ExpectedInitializer {
+        near_tokens: Vec<Token>,
+    },
+    #[display("Expected declarator, near tokens: {:?}", near_tokens)]
+    ExpectedDeclarator {
+        near_tokens: Vec<Token>,
+    },
+    #[display("Expected constant, near tokens: {:?}", near_tokens)]
+    ExpectedConstant {
+        near_tokens: Vec<Token>,
+    },
+    #[display("Expected declaration specifier, near tokens: {:?}", near_tokens)]
+    ExpectedDeclarationSpecifier {
         near_tokens: Vec<Token>,
     },
 }
@@ -93,4 +100,13 @@ pub trait Parse {
 
         Ok(())
     }
+}
+
+pub trait TryParse {
+    /// Try to parse the current token stream into the current type.
+    /// If the current token stream does not match the current type, return None.
+    /// Do not consume the tokens if the current token stream does not match the current type.
+    fn try_parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Option<Self>>
+    where
+        Self: Sized;
 }

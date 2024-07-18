@@ -1,5 +1,5 @@
 use crate::lexer::{Keyword, Token};
-use crate::parser::{Parse, ParserError};
+use crate::parser::{Result, TryParse};
 use std::iter::Peekable;
 
 #[derive(Debug)]
@@ -9,17 +9,18 @@ pub enum TypeQualifier {
     Volatile,
 }
 
-impl Parse for TypeQualifier {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self, ParserError>
+impl TryParse for TypeQualifier {
+    fn try_parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Option<Self>>
     where
         Self: Sized,
     {
-        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
-        let out = match token {
-            Token::Keyword(Keyword::Const) => TypeQualifier::Const,
-            Token::Keyword(Keyword::Volatile) => TypeQualifier::Volatile,
-            _ => unreachable!(),
+        let out = match tokens.peek() {
+            Some(Token::Keyword(Keyword::Const)) => Some(TypeQualifier::Const),
+            Some(Token::Keyword(Keyword::Volatile)) => Some(TypeQualifier::Volatile),
+            _ => return Ok(None),
         };
+
+        tokens.next();
 
         Ok(out)
     }
@@ -30,7 +31,6 @@ impl TypeQualifier {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::Parse;
     use rstest::rstest;
 
     #[rstest]
@@ -44,7 +44,7 @@ mod tests {
     )]
     fn test_parse_type_qualifier(#[case] input: Vec<Token>, #[case] expected: TypeQualifier) {
         let mut tokens = input.into_iter().peekable();
-        let result = TypeQualifier::parse(&mut tokens).unwrap();
+        let result = TypeQualifier::try_parse(&mut tokens).unwrap().unwrap();
         assert_eq!(result, expected);
     }
 }

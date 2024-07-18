@@ -1,4 +1,7 @@
+#[allow(clippy::module_inception)]
+pub mod declaration;
 pub mod declaration_specifier;
+pub mod declarator;
 pub mod enum_specifier;
 pub mod specifier_qualifier;
 pub mod storage_class;
