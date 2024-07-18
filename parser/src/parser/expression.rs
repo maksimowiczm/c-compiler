@@ -2,13 +2,14 @@ use crate::lexer::{
     Assignment as TokenAssignment, Constant as TokenConstant, Keyword, StringLiteral, Token,
 };
 use crate::parser::constant::Constant;
-use crate::parser::type_info::TypeInfo;
-use crate::parser::{Parse, ParserError, Result};
+use crate::parser::declaration::specifier_qualifier::SpecifierQualifier;
+use crate::parser::{Parse, ParserError, Result, TryParse};
 use std::iter::Peekable;
 use TokenAssignment::*;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum Expression {
     Empty,
     Identifier(String),
@@ -36,7 +37,7 @@ pub enum Expression {
         expression: Box<Expression>,
     },
     Cast {
-        type_info: TypeInfo,
+        type_name: TypeName,
         expression: Box<Expression>,
     },
     Multiplicative {
@@ -80,7 +81,7 @@ pub enum Expression {
         false_expression: Box<Expression>,
     },
     Assignment {
-        variable: String,
+        variable: Box<Expression>,
         expression: Box<Expression>,
         operator: AssignmentOperator,
     },
@@ -88,10 +89,18 @@ pub enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    Dereference {
+        expression: Box<Expression>,
+    },
+    Call {
+        function: Box<Expression>,
+        arguments: Vec<Expression>,
+    },
 }
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum AssignmentOperator {
     Assign,
     AddAssign,
@@ -108,6 +117,7 @@ pub enum AssignmentOperator {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum LogicalOperator {
     And,
     Or,
@@ -115,6 +125,7 @@ pub enum LogicalOperator {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum BitwiseOperator {
     And,
     Or,
@@ -123,6 +134,7 @@ pub enum BitwiseOperator {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum EqualityOperator {
     Equal,
     NotEqual,
@@ -130,6 +142,7 @@ pub enum EqualityOperator {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum RelationOperator {
     LessThan,
     LessThanOrEqual,
@@ -139,6 +152,7 @@ pub enum RelationOperator {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum ShiftOperator {
     Left,
     Right,
@@ -146,6 +160,7 @@ pub enum ShiftOperator {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum AdditiveOperator {
     Addition,
     Subtraction,
@@ -153,6 +168,7 @@ pub enum AdditiveOperator {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum MultiplicativeOperator {
     Multiply,
     Divide,
@@ -161,9 +177,9 @@ pub enum MultiplicativeOperator {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum UnaryOperator {
     AddressOf,
-    Dereference,
     Plus,
     Minus,
     BitwiseNot,
@@ -172,16 +188,50 @@ pub enum UnaryOperator {
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum SizeofExpression {
-    Type(TypeInfo),
+    Type(TypeName),
     Expression(Box<Expression>),
 }
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum InstantOperator {
     Increment,
     Decrement,
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
+pub struct TypeName {
+    specifier_qualifier: Vec<SpecifierQualifier>,
+    abstract_declarator: Option<()>,
+}
+
+impl TryParse for TypeName {
+    fn try_parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Option<Self>>
+    where
+        Self: Sized,
+    {
+        let mut specifier_qualifier = vec![];
+        while let Some(qualifier) = SpecifierQualifier::try_parse(tokens)? {
+            specifier_qualifier.push(qualifier);
+        }
+
+        if specifier_qualifier.is_empty() {
+            return Ok(None);
+        }
+
+        // abstract declarator todo
+        let abstract_declarator = None;
+
+        Ok(Some(Self {
+            specifier_qualifier,
+            abstract_declarator,
+        }))
+    }
 }
 
 impl Parse for Expression {
@@ -198,7 +248,7 @@ impl Parse for Expression {
         let out = match peek {
             Token::Comma => {
                 tokens.next();
-                let right = Self::assignment_expression(tokens)?;
+                let right = Self::parse(tokens)?;
                 Expression::Comma {
                     left: Box::new(expression),
                     right: Box::new(right),
@@ -217,10 +267,16 @@ impl Expression {
     ) -> Result<Self> {
         let conditional_expression = Self::conditional_expression(tokens)?;
 
-        let identifier = match &conditional_expression {
-            Expression::Identifier(id) => id,
-            _ => return Ok(conditional_expression),
-        };
+        // allow only lvalue
+        if !matches!(
+            conditional_expression,
+            Expression::Identifier { .. }
+                | Expression::SquareBracket { .. }
+                | Expression::StructMember { .. }
+                | Expression::Dereference { .. }
+        ) {
+            return Ok(conditional_expression);
+        }
 
         let peek = match tokens.peek() {
             Some(token) => token,
@@ -246,7 +302,7 @@ impl Expression {
         let expression = Self::assignment_expression(tokens)?;
 
         Ok(Expression::Assignment {
-            variable: identifier.to_string(),
+            variable: Box::new(conditional_expression),
             expression: Box::new(expression),
             operator,
         })
@@ -557,21 +613,7 @@ impl Expression {
     }
 
     fn cast_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
-        let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
-
-        match peek {
-            Token::OpenParenthesis => {
-                tokens.next();
-                let type_info = TypeInfo::parse(tokens)?;
-                Self::expect_token(tokens, Token::CloseParenthesis)?;
-                let expression = Self::cast_expression(tokens)?;
-                Ok(Expression::Cast {
-                    type_info,
-                    expression: Box::new(expression),
-                })
-            }
-            _ => Self::unary_expression(tokens),
-        }
+        Self::unary_expression(tokens)
     }
 
     fn unary_expression(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self> {
@@ -615,11 +657,15 @@ impl Expression {
                     .clone();
 
                 let out = match peek {
-                    Token::Keyword(_) => {
-                        Expression::Sizeof(SizeofExpression::Type(TypeInfo::parse(tokens)?))
-                    }
+                    Token::Keyword(_) => match TypeName::try_parse(tokens)? {
+                        Some(type_name) => Expression::Sizeof(SizeofExpression::Type(type_name)),
+                        None => {
+                            let expression = Expression::unary_expression(tokens)?;
+                            Expression::Sizeof(SizeofExpression::Expression(Box::new(expression)))
+                        }
+                    },
                     _ => {
-                        let expression = Expression::parse(tokens)?;
+                        let expression = Expression::unary_expression(tokens)?;
                         Expression::Sizeof(SizeofExpression::Expression(Box::new(expression)))
                     }
                 };
@@ -639,8 +685,7 @@ impl Expression {
             Token::Star => {
                 tokens.next();
                 let expression = Self::cast_expression(tokens)?;
-                Expression::Unary {
-                    operator: UnaryOperator::Dereference,
+                Expression::Dereference {
                     expression: Box::new(expression),
                 }
             }
@@ -697,19 +742,52 @@ impl Expression {
                 tokens.next();
                 let expression = Expression::parse(tokens)?;
                 Self::expect_token(tokens, Token::CloseSquareBracket)?;
-                Expression::SquareBracket {
-                    variable: primary
+                let variable =
+                    primary
                         .get_identifier()
-                        .ok_or(ParserError::UnexpectedToken {
+                        .ok_or_else(|| ParserError::UnexpectedToken {
                             unexpected: Token::OpenSquareBracket,
                             expected: vec![Token::Word("<identifier>".to_string())],
                             near_tokens: tokens.take(6).collect(),
-                        })?,
+                        })?;
+                Expression::SquareBracket {
+                    variable,
                     expression: Box::new(expression),
                 }
             }
             // <postfix-expression> ( {<assignment-expression>}* )
-            Token::OpenParenthesis => todo!(),
+            Token::OpenParenthesis => {
+                tokens.next();
+                let mut arguments = vec![];
+                while let Some(token) = tokens.peek() {
+                    match token {
+                        Token::CloseParenthesis => {
+                            tokens.next();
+                            break;
+                        }
+                        _ => {
+                            let expression = Expression::assignment_expression(tokens)?;
+                            arguments.push(expression);
+                            match tokens.peek() {
+                                Some(Token::Comma) => {
+                                    tokens.next();
+                                }
+                                Some(Token::CloseParenthesis) => {}
+                                _ => {
+                                    return Err(ParserError::ExpectedExpression {
+                                        near_tokens: tokens.take(6).collect(),
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Expression::Call {
+                    function: Box::new(primary),
+                    arguments,
+                }
+            }
             // <postfix-expression> . <identifier>
             // <postfix-expression> -> <identifier>
             Token::Dot | Token::Arrow => {
@@ -738,13 +816,14 @@ impl Expression {
             // <postfix-expression> ++
             Token::Increment => {
                 let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
-                let variable = primary
-                    .get_identifier()
-                    .ok_or(ParserError::UnexpectedToken {
-                        unexpected: token,
-                        expected: vec![Token::Word("<identifier>".to_string())],
-                        near_tokens: tokens.take(6).collect(),
-                    })?;
+                let variable =
+                    primary
+                        .get_identifier()
+                        .ok_or_else(|| ParserError::UnexpectedToken {
+                            unexpected: token,
+                            expected: vec![Token::Word("<identifier>".to_string())],
+                            near_tokens: tokens.take(6).collect(),
+                        })?;
                 Expression::PostOperation {
                     variable,
                     operator: InstantOperator::Increment,
@@ -753,13 +832,14 @@ impl Expression {
             // postfix-expression> --
             Token::Decrement => {
                 let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
-                let variable = primary
-                    .get_identifier()
-                    .ok_or(ParserError::UnexpectedToken {
-                        unexpected: token,
-                        expected: vec![Token::Word("<identifier>".to_string())],
-                        near_tokens: tokens.take(6).collect(),
-                    })?;
+                let variable =
+                    primary
+                        .get_identifier()
+                        .ok_or_else(|| ParserError::UnexpectedToken {
+                            unexpected: token,
+                            expected: vec![Token::Word("<identifier>".to_string())],
+                            near_tokens: tokens.take(6).collect(),
+                        })?;
                 Expression::PostOperation {
                     variable,
                     operator: InstantOperator::Decrement,
@@ -791,9 +871,20 @@ impl Expression {
             },
             Token::OpenParenthesis => {
                 tokens.next();
-                let expression = Expression::parse(tokens)?;
-                Self::expect_token(tokens, Token::CloseParenthesis)?;
-                expression
+
+                // cast
+                if let Some(type_name) = TypeName::try_parse(tokens)? {
+                    Self::expect_token(tokens, Token::CloseParenthesis)?;
+                    let expression = Self::cast_expression(tokens)?;
+                    Expression::Cast {
+                        type_name,
+                        expression: Box::new(expression),
+                    }
+                } else {
+                    let expression = Expression::parse(tokens)?;
+                    Self::expect_token(tokens, Token::CloseParenthesis)?;
+                    expression
+                }
             }
             _ => Err(ParserError::UnexpectedToken {
                 unexpected: token.clone(),
@@ -831,6 +922,9 @@ mod tests {
         Assignment as TokenAssignment, Constant as TokenConstant, Keyword, StringLiteral, Token,
     };
     use crate::parser::constant::Constant;
+    use crate::parser::declaration::specifier_qualifier::SpecifierQualifier;
+    use crate::parser::declaration::type_qualifier::TypeQualifier;
+    use crate::parser::declaration::type_specifier::TypeSpecifier;
     use rstest::rstest;
 
     #[rstest]
@@ -935,7 +1029,10 @@ mod tests {
             Token::Keyword(Keyword::Int),
             Token::CloseParenthesis,
         ],
-        Expression::Sizeof(SizeofExpression::Type(TypeInfo::Keyword("int".to_string()))),
+        Expression::Sizeof(SizeofExpression::Type(TypeName {
+            specifier_qualifier: vec![SpecifierQualifier::TypeSpecifier(TypeSpecifier::Int)],
+            abstract_declarator: None,
+        })),
     )]
     #[case::sizeof_expression(
         vec![
@@ -961,8 +1058,7 @@ mod tests {
             Token::Star,
             Token::Word("foo".to_string()),
         ],
-        Expression::Unary {
-            operator: UnaryOperator::Dereference,
+        Expression::Dereference {
             expression: Box::new(Expression::Identifier("foo".to_string())),
         },
     )]
@@ -1015,12 +1111,19 @@ mod tests {
     #[case::cast_type(
         vec![
             Token::OpenParenthesis,
+            Token::Keyword(Keyword::Const),
             Token::Keyword(Keyword::Int),
             Token::CloseParenthesis,
             Token::Word("foo".to_string()),
         ],
         Expression::Cast {
-            type_info: TypeInfo::Keyword("int".to_string()),
+            type_name: TypeName {
+                specifier_qualifier: vec![
+                    SpecifierQualifier::TypeQualifier(TypeQualifier::Const),
+                    SpecifierQualifier::TypeSpecifier(TypeSpecifier::Int)
+                ],
+                abstract_declarator: None,
+            },
             expression: Box::new(Expression::Identifier("foo".to_string())),
         },
     )]
@@ -1330,7 +1433,7 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::Assign,
         },
@@ -1342,7 +1445,7 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::AddAssign,
         },
@@ -1354,7 +1457,7 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::SubtractAssign,
         },
@@ -1366,7 +1469,7 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::MultiplyAssign,
         },
@@ -1378,7 +1481,7 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::DivideAssign,
         },
@@ -1390,7 +1493,7 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::ModuloAssign,
         },
@@ -1402,7 +1505,7 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::LeftShiftAssign,
         },
@@ -1414,7 +1517,7 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::RightShiftAssign,
         },
@@ -1426,7 +1529,7 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::BitwiseAndAssign,
         },
@@ -1438,7 +1541,7 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::BitwiseXorAssign,
         },
@@ -1450,9 +1553,59 @@ mod tests {
             Token::Word("bar".to_string()),
         ],
         Expression::Assignment {
-            variable: "foo".to_string(),
+            variable: Box::new(Expression::Identifier("foo".to_string())),
             expression: Box::new(Expression::Identifier("bar".to_string())),
             operator: AssignmentOperator::BitwiseOrAssign,
+        },
+    )]
+    #[case::assign_to_assign_member(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::Dot,
+            Token::Word("bar".to_string()),
+            Token::Assignment(Equal),
+            Token::Word("baz".to_string()),
+        ],
+        Expression::Assignment {
+            variable: Box::new(Expression::StructMember {
+                variable: "foo".to_string(),
+                member: "bar".to_string(),
+            }),
+            expression: Box::new(Expression::Identifier("baz".to_string())),
+            operator: AssignmentOperator::Assign,
+        },
+    )]
+    #[case::assign_to_assign_dereference(
+        vec![
+            Token::Star,
+            Token::Word("foo".to_string()),
+            Token::Assignment(Equal),
+            Token::Word("bar".to_string()),
+        ],
+        Expression::Assignment {
+            variable: Box::new(Expression::Dereference {
+                expression: Box::new(Expression::Identifier("foo".to_string())),
+            }),
+            expression: Box::new(Expression::Identifier("bar".to_string())),
+            operator: AssignmentOperator::Assign,
+        },
+    )]
+    #[case::assign_to_assign_square_bracket(
+        vec![
+            Token::Word("foo".to_string()),
+            Token::OpenSquareBracket,
+            Token::Word("bar".to_string()),
+            Token::CloseSquareBracket,
+            Token::Assignment(Equal),
+            Token::Word("baz".to_string()),
+        ],
+        Expression::Assignment {
+            variable: Box::new(Expression::SquareBracket {
+                variable: "foo".to_string(),
+                expression: Box::new(Expression::Identifier("bar".to_string())),
+            }),
+            expression: Box::new(Expression::Identifier("baz".to_string())),
+            operator: AssignmentOperator::Assign,
         },
     )]
     fn test_assignment_expression(#[case] input: Vec<Token>, #[case] expected: Expression) {
@@ -1472,6 +1625,46 @@ mod tests {
             right: Box::new(Expression::Identifier("bar".to_string())),
         };
 
+        let result = Expression::parse(&mut input.into_iter().peekable()).unwrap();
+        assert_eq!(result, expected);
+    }
+
+    #[rstest]
+    #[case::cast_cast_post_increment(
+        vec![
+            Token::OpenParenthesis,
+            Token::Keyword(Keyword::Char),
+            Token::CloseParenthesis,
+            Token::OpenParenthesis,
+            Token::OpenParenthesis,
+            Token::Keyword(Keyword::Int),
+            Token::CloseParenthesis,
+            Token::Word("foo".to_string()),
+            Token::Increment,
+            Token::CloseParenthesis,
+        ],
+        Expression::Cast {
+            type_name: TypeName {
+                specifier_qualifier: vec![SpecifierQualifier::TypeSpecifier(TypeSpecifier::Char)],
+                abstract_declarator: None,
+            },
+            expression: Box::new(
+                Expression::Cast {
+                    type_name: TypeName {
+                        specifier_qualifier: vec![SpecifierQualifier::TypeSpecifier(TypeSpecifier::Int)],
+                        abstract_declarator: None,
+                    },
+                    expression: Box::new(
+                        Expression::PostOperation {
+                            variable: "foo".to_string(),
+                            operator: InstantOperator::Increment,
+                        },
+                    ),
+                },
+            ),
+        },
+    )]
+    fn test_edge_cases(#[case] input: Vec<Token>, #[case] expected: Expression) {
         let result = Expression::parse(&mut input.into_iter().peekable()).unwrap();
         assert_eq!(result, expected);
     }

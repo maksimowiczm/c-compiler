@@ -2,7 +2,6 @@ pub mod constant;
 pub mod declaration;
 pub mod expression;
 pub mod statement;
-pub mod type_info;
 
 use crate::lexer::Token;
 use derive_more::{Display, Error};
@@ -65,6 +64,10 @@ pub enum ParserError {
     ExpectedDeclarationSpecifier {
         near_tokens: Vec<Token>,
     },
+    #[display("Expected expression, near tokens: {:?}", near_tokens)]
+    ExpectedExpression {
+        near_tokens: Vec<Token>,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, ParserError>;
@@ -92,10 +95,10 @@ pub trait Parse {
         tokens: &mut Peekable<impl Iterator<Item = Token>>,
         expected: Token,
     ) -> Result<()> {
-        let token = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
-
-        if token.clone() == expected {
-            tokens.next();
+        if let Some(token) = tokens.peek() {
+            if token.clone() == expected {
+                tokens.next();
+            }
         }
 
         Ok(())
