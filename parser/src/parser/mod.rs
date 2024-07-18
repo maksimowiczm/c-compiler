@@ -40,6 +40,24 @@ pub enum ParserError {
         unexpected: Token,
         near_tokens: Vec<Token>,
     },
+    #[display(
+        "Unexpected token {:?}. Expected type specifier, near tokens: {:?}",
+        unexpected,
+        near_tokens
+    )]
+    ExpectedTypeSpecifier {
+        unexpected: Token,
+        near_tokens: Vec<Token>,
+    },
+    #[display(
+        "Unexpected token {:?}. Expected type qualifier, near tokens: {:?}",
+        unexpected,
+        near_tokens
+    )]
+    ExpectedSpecifierQualifier {
+        unexpected: Token,
+        near_tokens: Vec<Token>,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, ParserError>;

@@ -116,7 +116,7 @@ pub enum Keyword {
 }
 
 impl Keyword {
-    pub(crate) fn is_type(&self) -> bool {
+    pub(crate) fn is_type_specifier(&self) -> bool {
         matches!(
             self,
             Keyword::Char
@@ -129,6 +129,21 @@ impl Keyword {
                 | Keyword::Unsigned
                 | Keyword::Void
         )
+    }
+
+    pub(crate) fn is_storage_class(&self) -> bool {
+        matches!(
+            self,
+            Keyword::Auto
+                | Keyword::Extern
+                | Keyword::Register
+                | Keyword::Static
+                | Keyword::Typedef
+        )
+    }
+
+    pub(crate) fn is_type_qualifier(&self) -> bool {
+        matches!(self, Keyword::Const | Keyword::Volatile)
     }
 }
 
