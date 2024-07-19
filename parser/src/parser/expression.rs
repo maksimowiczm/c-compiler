@@ -1,7 +1,6 @@
-use crate::lexer::{
-    Assignment as TokenAssignment, Constant as TokenConstant, Keyword, StringLiteral, Token,
-};
+use crate::lexer::{Assignment as TokenAssignment, Keyword, StringLiteral, Token};
 use crate::parser::constant::Constant;
+use crate::parser::declaration::declarator::AbstractDeclarator;
 use crate::parser::declaration::specifier_qualifier::SpecifierQualifier;
 use crate::parser::{Parse, ParserError, Result, TryParse};
 use std::iter::Peekable;
@@ -207,7 +206,7 @@ pub enum InstantOperator {
 #[allow(dead_code)]
 pub struct TypeName {
     specifier_qualifier: Vec<SpecifierQualifier>,
-    abstract_declarator: Option<()>,
+    abstract_declarator: Option<AbstractDeclarator>,
 }
 
 impl TryParse for TypeName {
@@ -224,8 +223,7 @@ impl TryParse for TypeName {
             return Ok(None);
         }
 
-        // abstract declarator todo
-        let abstract_declarator = None;
+        let abstract_declarator = AbstractDeclarator::try_parse(tokens)?;
 
         Ok(Some(Self {
             specifier_qualifier,
@@ -886,17 +884,8 @@ impl Expression {
                     expression
                 }
             }
-            _ => Err(ParserError::UnexpectedToken {
-                unexpected: token.clone(),
-                expected: vec![
-                    Token::Word("<identifier>".to_string()),
-                    Token::Constant(TokenConstant::SignedInteger(0)),
-                    Token::Constant(TokenConstant::UnsignedInteger(0)),
-                    Token::Constant(TokenConstant::Decimal(0.0)),
-                    Token::Constant(TokenConstant::Character('*')),
-                    Token::StringLiteral(StringLiteral::ByteString(vec![])),
-                    Token::OpenParenthesis,
-                ],
+            _ => Err(ParserError::ExpectedIdentifier {
+                unexpected: token,
                 near_tokens: tokens.take(6).collect(),
             })?,
         };
@@ -1031,7 +1020,7 @@ mod tests {
         ],
         Expression::Sizeof(SizeofExpression::Type(TypeName {
             specifier_qualifier: vec![SpecifierQualifier::TypeSpecifier(TypeSpecifier::Int)],
-            abstract_declarator: None,
+            abstract_declarator: Some(AbstractDeclarator { pointer: None }),
         })),
     )]
     #[case::sizeof_expression(
@@ -1122,7 +1111,9 @@ mod tests {
                     SpecifierQualifier::TypeQualifier(TypeQualifier::Const),
                     SpecifierQualifier::TypeSpecifier(TypeSpecifier::Int)
                 ],
-                abstract_declarator: None,
+                abstract_declarator: Some(AbstractDeclarator{
+                    pointer: None,
+                })
             },
             expression: Box::new(Expression::Identifier("foo".to_string())),
         },
@@ -1646,13 +1637,13 @@ mod tests {
         Expression::Cast {
             type_name: TypeName {
                 specifier_qualifier: vec![SpecifierQualifier::TypeSpecifier(TypeSpecifier::Char)],
-                abstract_declarator: None,
+                abstract_declarator: Some(AbstractDeclarator { pointer: None }),
             },
             expression: Box::new(
                 Expression::Cast {
                     type_name: TypeName {
                         specifier_qualifier: vec![SpecifierQualifier::TypeSpecifier(TypeSpecifier::Int)],
-                        abstract_declarator: None,
+                        abstract_declarator: Some(AbstractDeclarator { pointer: None }),
                     },
                     expression: Box::new(
                         Expression::PostOperation {

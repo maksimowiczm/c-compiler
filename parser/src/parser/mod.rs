@@ -68,6 +68,10 @@ pub enum ParserError {
     ExpectedExpression {
         near_tokens: Vec<Token>,
     },
+    #[display("Expected statement, near tokens: {:?}", near_tokens)]
+    ExpectedAbstractDeclarator {
+        near_tokens: Vec<Token>,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, ParserError>;
@@ -112,4 +116,18 @@ pub trait TryParse {
     fn try_parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Option<Self>>
     where
         Self: Sized;
+
+    fn expect_token(tokens: &mut impl Iterator<Item = Token>, expected: Token) -> Result<()> {
+        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+
+        if token == expected {
+            Ok(())
+        } else {
+            Err(ParserError::UnexpectedToken {
+                unexpected: token,
+                expected: vec![expected],
+                near_tokens: tokens.take(6).collect(),
+            })
+        }
+    }
 }

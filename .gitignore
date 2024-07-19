@@ -1,2 +1,9 @@
 /target
 .idea
+*.c
+info
+*.s
+notsupported
+program
+xd
+wierdest

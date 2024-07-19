@@ -2,7 +2,7 @@ use crate::lexer::Token;
 use crate::parser::declaration::storage_class::StorageClass;
 use crate::parser::declaration::type_qualifier::TypeQualifier;
 use crate::parser::declaration::type_specifier::TypeSpecifier;
-use crate::parser::{ParserError, Result, TryParse};
+use crate::parser::{Result, TryParse};
 use std::iter::Peekable;
 
 #[derive(Debug)]
@@ -18,7 +18,10 @@ impl TryParse for DeclarationSpecifier {
     where
         Self: Sized,
     {
-        let token = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
+        let token = match tokens.peek() {
+            Some(token) => token,
+            None => return Ok(None),
+        };
 
         let out = match token {
             Token::Keyword(_) => {

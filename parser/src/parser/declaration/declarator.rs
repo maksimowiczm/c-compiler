@@ -9,7 +9,9 @@ use std::iter::Peekable;
 
 #[derive(Debug)]
 #[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
 pub enum Declarator {
+    Abstract(AbstractDeclarator),
     Identifier {
         identifier: String,
         pointer: Option<Pointer>,
@@ -24,47 +26,69 @@ pub enum Declarator {
     },
 }
 
-impl Parse for Declarator {
-    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+#[allow(dead_code)]
+pub struct AbstractDeclarator {
+    pub pointer: Option<Pointer>,
+}
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct Pointer {
+    pub type_qualifiers: Vec<TypeQualifier>,
+    pub inner_pointer: Option<Box<Pointer>>,
+}
+
+impl TryParse for Declarator {
+    fn try_parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Option<Self>>
     where
         Self: Sized,
     {
         let pointer = Pointer::try_parse(tokens)?;
 
-        let token = tokens.next().ok_or(ParserError::UnexpectedEndOfInput)?;
+        let _ = match tokens.peek() {
+            None if pointer.is_none() => return Ok(None),
+            None => return Err(ParserError::UnexpectedEndOfInput),
+            Some(token) => token,
+        };
+
+        let token = tokens.peek().unwrap();
 
         // direct-declarator:
+        // abstract-direct-declarator:
         let declarator = match token {
-            Token::Word(identifier) => Declarator::Identifier {
-                identifier,
-                pointer,
-            },
+            Token::Word(identifier) => {
+                let identifier = identifier.clone();
+                tokens.next();
+                Declarator::Identifier {
+                    identifier,
+                    pointer,
+                }
+            }
             Token::OpenParenthesis => {
+                tokens.next();
                 let declarator = Declarator::parse(tokens)?;
 
-                Self::expect_token(tokens, Token::CloseParenthesis)?;
+                <Self as TryParse>::expect_token(tokens, Token::CloseParenthesis)?;
                 Declarator::Wrapped {
                     inner: Box::new(declarator),
                     pointer,
                 }
             }
-            _ => {
-                return Err(ParserError::ExpectedDeclarator {
-                    near_tokens: tokens.take(6).collect(),
-                })
-            }
+            _ => Declarator::Abstract(AbstractDeclarator { pointer }),
         };
 
         let peek = match tokens.peek() {
             Some(peek) => peek,
-            None => return Ok(declarator),
+            None => return Ok(Some(declarator)),
         };
 
         let out = match peek {
             Token::OpenSquareBracket => {
                 tokens.next();
                 let size = Constant::try_parse(tokens)?;
-                Self::expect_token(tokens, Token::CloseSquareBracket)?;
+                <Self as TryParse>::expect_token(tokens, Token::CloseSquareBracket)?;
 
                 Declarator::Array {
                     inner: Box::new(declarator),
@@ -74,15 +98,34 @@ impl Parse for Declarator {
             _ => declarator,
         };
 
-        Ok(out)
+        Ok(Some(out))
     }
 }
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq))]
-pub struct Pointer {
-    pub type_qualifiers: Vec<TypeQualifier>,
-    pub inner_pointer: Option<Box<Pointer>>,
+impl Parse for Declarator {
+    fn parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Self>
+    where
+        Self: Sized,
+    {
+        Self::try_parse(tokens)?.ok_or_else(|| ParserError::ExpectedDeclarator {
+            near_tokens: tokens.take(6).collect(),
+        })
+    }
+}
+
+impl TryParse for AbstractDeclarator {
+    fn try_parse(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Option<Self>>
+    where
+        Self: Sized,
+    {
+        match Declarator::try_parse(tokens)? {
+            Some(Declarator::Abstract(abstract_declarator)) => Ok(Some(abstract_declarator)),
+            None => Ok(None),
+            _ => Err(ParserError::ExpectedAbstractDeclarator {
+                near_tokens: tokens.take(6).collect(),
+            }),
+        }
+    }
 }
 
 impl TryParse for Pointer {
