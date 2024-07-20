@@ -2,15 +2,14 @@ use std::iter::Peekable;
 
 #[allow(dead_code)]
 #[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq))]
+#[cfg_attr(test, derive(PartialEq, Clone))]
 pub struct Token {
     pub kind: TokenKind,
     pub value: String,
 }
 
 #[allow(dead_code)]
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum TokenKind {
     Identifier,
     // keywords
@@ -55,6 +54,8 @@ pub enum TokenKind {
     Semicolon,
     Asterisk,
     Ampersand,
+    Comma,
+    Assign,
 }
 
 pub struct Tokenizer<I: Iterator<Item = char>> {
@@ -85,6 +86,8 @@ where
                 ';' => TokenKind::Semicolon,
                 '*' => TokenKind::Asterisk,
                 '&' => TokenKind::Ampersand,
+                ',' => TokenKind::Comma,
+                '=' => TokenKind::Assign,
                 _ if ch.is_alphabetic() || ch == '_' => {
                     while let Some(&ch) = self.source.peek() {
                         if ch.is_alphanumeric() || ch == '_' {
@@ -222,4 +225,5 @@ mod tests {
     test!(test_semicolon, ";", TokenKind::Semicolon);
     test!(test_asterisk, "*", TokenKind::Asterisk);
     test!(test_ampersand, "&", TokenKind::Ampersand);
+    test!(test_comma, ",", TokenKind::Comma);
 }
