@@ -174,12 +174,12 @@ impl Context {
                         variable: name,
                     });
                 }
-                *stack = self.stack_index as i64 * -1;
+                *stack = -(self.stack_index as i64);
                 *scope = true;
             }
             None => {
                 self.variables
-                    .insert(name, (self.stack_index as i64 * -1, true));
+                    .insert(name, (-(self.stack_index as i64), true));
             }
         }
 
@@ -361,7 +361,7 @@ fn generate_statement(
                 LABEL_COUNTER += 1;
                 LABEL_COUNTER
             });
-            if let Some(_) = otherwise {
+            if otherwise.is_some() {
                 instructions.push(Instruction::Je(else_label.clone()));
             } else {
                 instructions.push(Instruction::Je(end_label.clone()));
@@ -431,7 +431,7 @@ fn generate_statement(
             instructions.extend(generate_statement(*body, &mut inner_context)?);
             instructions.push(Instruction::Label(pre_post.clone()));
             if let Some(post_expression) = post_expression {
-                instructions.extend(generate_expression(post_expression, &context)?);
+                instructions.extend(generate_expression(post_expression, context)?);
             }
             instructions.push(Instruction::Jmp(start_label.clone()));
             instructions.push(Instruction::Label(end_label));
@@ -552,7 +552,7 @@ fn generate_expression(
 ) -> Result<Vec<Instruction>, Asm64CodeGenerationError> {
     let result = match expression {
         Expression::Integer(value) => Ok(vec![Instruction::Mov(
-            format!("${}", value.to_string()),
+            format!("${}", value),
             Register64::Rax.to_string(),
         )]),
         Expression::UnaryOperation { operator, operand } => {

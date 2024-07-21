@@ -226,14 +226,9 @@ impl Parser {
                 });
             }
 
-            if definitions
-                .iter()
-                .filter(|f| {
-                    f.name == declaration.name && f.arguments.len() != declaration.arguments.len()
-                })
-                .next()
-                .is_some()
-            {
+            if definitions.iter().any(|f| {
+                f.name == declaration.name && f.arguments.len() != declaration.arguments.len()
+            }) {
                 return Err(ParserError::DefinitionDoesntMatchDeclaration {
                     name: declaration.name.clone(),
                 });
@@ -367,7 +362,7 @@ impl Statement {
             | Token::LogicalNot => {
                 let expression = Expression::parse(tokens)?;
                 expect_token(tokens, Token::SemiColon)?;
-                return Ok(Statement::Expression(expression));
+                Ok(Statement::Expression(expression))
             }
             Token::OpenBrace => {
                 expect_token(tokens, Token::OpenBrace)?;
@@ -462,7 +457,7 @@ fn parse_for(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<State
 
     let peek = tokens.peek().ok_or(ParserError::UnexpectedEndOfInput)?;
 
-    return if let Token::Keyword(Keyword::Int) = peek {
+    if let Token::Keyword(Keyword::Int) = peek {
         let declaration = Declaration::parse(tokens)?;
         let condition = condition(tokens)?;
         expect_token(tokens, Token::SemiColon)?;
@@ -494,7 +489,7 @@ fn parse_for(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<State
             post_expression,
             body,
         })
-    };
+    }
 }
 
 fn parse_while(
@@ -562,7 +557,7 @@ impl Expression {
                 if !matches!(tokens.peek(), Some(Token::Assignment(_))) {
                     return Ok(Expression::Variable(id));
                 }
-                return if let Some(Token::Assignment(assignment)) = tokens.next() {
+                if let Some(Token::Assignment(assignment)) = tokens.next() {
                     let right = Box::new(Expression::parse(tokens)?);
                     match assignment {
                         Assignment::Equal => Ok(Expression::Assignment {
@@ -655,7 +650,7 @@ impl Expression {
                     }
                 } else {
                     unreachable!()
-                };
+                }
             }
             // logical_or
             expression => Ok(expression),
@@ -930,7 +925,7 @@ impl Expression {
             }
         }
 
-        return Ok(node);
+        Ok(node)
     }
 
     fn term(tokens: &mut Peekable<impl Iterator<Item = Token>>) -> Result<Expression, ParserError> {
