@@ -5,7 +5,7 @@ assembly and C.
 ### Usage
 
 ```sh
-cargo run <C-source-file> > program.s
+cargo run -- <C-source-file> > program.s
 ```
 
 This will print assembly code on stdout.
